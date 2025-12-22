@@ -1,0 +1,28 @@
+{
+  "name": "NovaWrite AI - 专业小说写作助手",
+  "short_name": "NovaWrite AI",
+  "description": "AI 驱动的专业小说写作助手，帮助您创作下一部杰作",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "32x32",
+      "type": "image/x-icon"
+    }
+  ],
+  "categories": ["productivity", "writing"],
+  "lang": "zh-CN",
+  "dir": "ltr"
+}
+
+

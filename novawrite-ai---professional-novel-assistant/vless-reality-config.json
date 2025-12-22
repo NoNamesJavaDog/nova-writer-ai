@@ -1,0 +1,20 @@
+{
+  "v": "2",
+  "ps": "VLESS-Reality-Server",
+  "add": "66.154.108.62",
+  "port": "10011",
+  "id": "65488062-2ae6-4a68-a703-e10b0774e4dc",
+  "aid": "0",
+  "scy": "none",
+  "net": "tcp",
+  "type": "none",
+  "host": "",
+  "path": "",
+  "tls": "reality",
+  "sni": "images-na.ssl-images-amazon.com",
+  "alpn": "",
+  "fp": "",
+  "pbk": "GIQGinCWuISE73QK90EVQtcz0Mu7iBsZHRZA0DzS-zE",
+  "sid": "6ba85179e30d4fc2"
+}
+

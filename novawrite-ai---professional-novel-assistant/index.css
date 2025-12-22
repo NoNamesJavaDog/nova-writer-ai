@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* NovaWrite AI Custom Styles */
+body { 
+  font-family: 'Inter', sans-serif; 
+}
+
+.serif { 
+  font-family: 'Lora', serif; 
+}
+
+::-webkit-scrollbar { 
+  width: 6px; 
+}
+
+::-webkit-scrollbar-track { 
+  background: transparent; 
+}
+
+::-webkit-scrollbar-thumb { 
+  background: #cbd5e1; 
+  border-radius: 10px; 
+}
+
+::-webkit-scrollbar-thumb:hover { 
+  background: #94a3b8; 
+}
+
+/* 移动端优化 */
+@supports (-webkit-touch-callout: none) {
+  /* iOS Safari 特定样式 */
+  .safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* 触摸优化 */
+button, 
+a, 
+input[type="button"], 
+input[type="submit"],
+[role="button"] {
+  -webkit-tap-highlight-color: rgba(99, 102, 241, 0.1);
+  touch-action: manipulation;
+}
+
+/* 防止移动端文字大小调整 */
+input, 
+textarea, 
+select {
+  font-size: 16px !important; /* 防止 iOS Safari 缩放 */
+}
+
+@media (min-width: 768px) {
+  input, 
+  textarea, 
+  select {
+    font-size: 14px !important;
+  }
+}
+
+/* 平滑滚动 */
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 移动端表单优化 */
+@media (max-width: 767px) {
+  input, textarea, select {
+    min-height: 44px; /* 触摸友好的最小高度 */
+  }
+  
+  button {
+    min-height: 44px;
+  }
+}
+

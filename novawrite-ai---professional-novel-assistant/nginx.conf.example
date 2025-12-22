@@ -1,0 +1,66 @@
+# Nginx 配置示例
+# 将此文件复制到服务器的 /etc/nginx/sites-available/novawrite-ai
+# 然后创建软链接: ln -s /etc/nginx/sites-available/novawrite-ai /etc/nginx/sites-enabled/
+# 最后重启nginx: systemctl restart nginx
+
+server {
+    listen 80;
+    server_name 66.154.108.62;  # 如果有域名，替换为域名
+    
+    # 网站根目录
+    root /var/www/novawrite-ai/current;
+    index index.html;
+    
+    # 日志
+    access_log /var/log/nginx/novawrite-ai-access.log;
+    error_log /var/log/nginx/novawrite-ai-error.log;
+    
+    # Gzip 压缩
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json;
+    
+    # 静态文件缓存
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # SPA 路由支持 - 所有路由都返回 index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+    
+    # 安全头
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    
+    # 限制请求大小
+    client_max_body_size 10M;
+}
+
+# HTTPS 配置（可选，使用 Let's Encrypt）
+# server {
+#     listen 443 ssl http2;
+#     server_name 66.154.108.62;  # 替换为域名
+#     
+#     ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+#     
+#     root /var/www/novawrite-ai/current;
+#     index index.html;
+#     
+#     location / {
+#         try_files $uri $uri/ /index.html;
+#     }
+# }
+# 
+# # HTTP 重定向到 HTTPS
+# server {
+#     listen 80;
+#     server_name 66.154.108.62;  # 替换为域名
+#     return 301 https://$server_name$request_uri;
+# }
+

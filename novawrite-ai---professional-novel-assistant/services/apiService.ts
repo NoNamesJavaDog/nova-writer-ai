@@ -1,0 +1,932 @@
+// API 服务 - 封装所有后端 API 调用
+import { Novel, Character, WorldSetting, TimelineEvent, Foreshadowing, Volume, Chapter, User } from '../types';
+
+// 使用相对路径，由 Nginx 代理到后端
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
+// 获取存储的访问令牌
+const getToken = (): string | null => {
+  return localStorage.getItem('access_token');
+};
+
+// 获取存储的刷新令牌
+const getRefreshToken = (): string | null => {
+  return localStorage.getItem('refresh_token');
+};
+
+// 设置访问令牌
+const setToken = (token: string): void => {
+  localStorage.setItem('access_token', token);
+};
+
+// 设置刷新令牌
+const setRefreshToken = (token: string): void => {
+  localStorage.setItem('refresh_token', token);
+};
+
+// 清除访问令牌
+const clearToken = (): void => {
+  localStorage.removeItem('access_token');
+};
+
+// 清除刷新令牌
+const clearRefreshToken = (): void => {
+  localStorage.removeItem('refresh_token');
+};
+
+// 清除所有令牌
+const clearAllTokens = (): void => {
+  clearToken();
+  clearRefreshToken();
+};
+
+// 刷新访问令牌
+let isRefreshing = false;
+let refreshPromise: Promise<LoginResponse | null> | null = null;
+
+const refreshAccessToken = async (): Promise<LoginResponse | null> => {
+  // 如果正在刷新，等待当前的刷新请求完成
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) {
+        return null;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      if (!response.ok) {
+        clearAllTokens();
+        return null;
+      }
+
+      const data: LoginResponse = await response.json();
+      setToken(data.access_token);
+      setRefreshToken(data.refresh_token);
+      return data;
+    } catch (error) {
+      clearAllTokens();
+      return null;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+};
+
+// 通用 API 请求函数
+export async function apiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  retryOn401: boolean = true
+): Promise<T> {
+  const token = getToken();
+  
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+  
+  if (!response.ok) {
+    if (response.status === 401 && retryOn401) {
+      // 尝试刷新令牌
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        // 使用新的访问令牌重试请求
+        const newHeaders: HeadersInit = {
+          'Content-Type': 'application/json',
+          ...options.headers,
+          'Authorization': `Bearer ${refreshed.access_token}`,
+        };
+        
+        const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, {
+          ...options,
+          headers: newHeaders,
+        });
+        
+        if (!retryResponse.ok) {
+          if (retryResponse.status === 401) {
+            clearAllTokens();
+            throw new Error('登录已过期，请重新登录');
+          }
+          const errorData = await retryResponse.json().catch(() => ({}));
+          throw new Error(errorData.detail || `请求失败: ${retryResponse.status} ${retryResponse.statusText}`);
+        }
+        
+        // 204 No Content 响应没有 body
+        if (retryResponse.status === 204) {
+          return null as T;
+        }
+        
+        return retryResponse.json();
+      } else {
+        // 刷新失败，清除令牌
+        clearAllTokens();
+        throw new Error('登录已过期，请重新登录');
+      }
+    }
+    
+    if (response.status === 401) {
+      clearAllTokens();
+      throw new Error('登录已过期，请重新登录');
+    }
+    
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `请求失败: ${response.status} ${response.statusText}`);
+  }
+  
+  // 204 No Content 响应没有 body
+  if (response.status === 204) {
+    return null as T;
+  }
+  
+  return response.json();
+}
+
+// ==================== 认证相关 ====================
+
+export interface LoginResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  user: User;
+}
+
+export interface RefreshTokenRequest {
+  refresh_token: string;
+}
+
+export interface RegisterData {
+  username: string;
+  email: string;
+  password: string;
+}
+
+export interface LoginData {
+  username_or_email: string;
+  password: string;
+}
+
+export const authApi = {
+  // 注册
+  register: async (data: RegisterData): Promise<LoginResponse> => {
+    const response = await apiRequest<LoginResponse>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, false); // 注册接口不需要重试
+    
+    if (response.access_token) {
+      setToken(response.access_token);
+    }
+    if (response.refresh_token) {
+      setRefreshToken(response.refresh_token);
+    }
+    return response;
+  },
+  
+  // 登录
+  login: async (data: LoginData): Promise<LoginResponse> => {
+    const response = await apiRequest<LoginResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }, false); // 登录接口不需要重试
+    
+    if (response.access_token) {
+      setToken(response.access_token);
+    }
+    if (response.refresh_token) {
+      setRefreshToken(response.refresh_token);
+    }
+    return response;
+  },
+  
+  // 刷新令牌
+  refresh: async (refreshToken: string): Promise<LoginResponse> => {
+    const response = await apiRequest<LoginResponse>('/api/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }, false); // 刷新接口不需要重试
+    
+    if (response.access_token) {
+      setToken(response.access_token);
+    }
+    if (response.refresh_token) {
+      setRefreshToken(response.refresh_token);
+    }
+    return response;
+  },
+  
+  // 获取当前用户信息
+  getCurrentUser: async (): Promise<User> => {
+    return apiRequest<User>('/api/auth/me');
+  },
+  
+  // 登出
+  logout: (): void => {
+    clearAllTokens();
+  },
+  
+  // 检查是否已登录
+  isAuthenticated: (): boolean => {
+    return getToken() !== null;
+  },
+};
+
+// ==================== 小说相关 ====================
+
+// 转换前端 Novel 格式到后端格式
+function novelToApi(novel: Novel): any {
+  return {
+    title: novel.title,
+    genre: novel.genre,
+    synopsis: novel.synopsis || '',
+    full_outline: novel.fullOutline || '',
+  };
+}
+
+// 转换后端 Novel 格式到前端格式
+function apiToNovel(apiNovel: any): Novel {
+  return {
+    id: apiNovel.id,
+    title: apiNovel.title,
+    genre: apiNovel.genre,
+    synopsis: apiNovel.synopsis || '',
+    fullOutline: apiNovel.full_outline || '',
+    volumes: (apiNovel.volumes || []).map((v: any) => ({
+      id: v.id,
+      title: v.title,
+      summary: v.summary || '',
+      outline: v.outline || '',
+      chapters: (v.chapters || []).map((c: any) => ({
+        id: c.id,
+        title: c.title,
+        summary: c.summary || '',
+        content: c.content || '',
+        aiPromptHints: c.ai_prompt_hints || '',
+      })),
+    })),
+    characters: (apiNovel.characters || []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      age: c.age || '',
+      role: c.role || '',
+      personality: c.personality || '',
+      background: c.background || '',
+      goals: c.goals || '',
+    })),
+    worldSettings: (apiNovel.world_settings || []).map((w: any) => ({
+      id: w.id,
+      title: w.title,
+      description: w.description,
+      category: w.category as any,
+    })),
+    timeline: (apiNovel.timeline_events || []).map((t: any) => ({
+      id: t.id,
+      time: t.time,
+      event: t.event,
+      impact: t.impact || '',
+    })),
+  };
+}
+
+export const novelApi = {
+  // 获取所有小说
+  getAll: async (): Promise<Novel[]> => {
+    const response = await apiRequest<any[]>('/api/novels');
+    return response.map(apiToNovel);
+  },
+  
+  // 获取单个小说
+  getById: async (novelId: string): Promise<Novel> => {
+    const response = await apiRequest<any>(`/api/novels/${novelId}`);
+    return apiToNovel(response);
+  },
+  
+  // 创建小说
+  create: async (novel: Partial<Novel>): Promise<Novel> => {
+    const response = await apiRequest<any>('/api/novels', {
+      method: 'POST',
+      body: JSON.stringify(novelToApi(novel as Novel)),
+    });
+    return apiToNovel(response);
+  },
+  
+  // 更新小说基本信息
+  update: async (novelId: string, updates: Partial<Novel>): Promise<Novel> => {
+    const response = await apiRequest<any>(`/api/novels/${novelId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        title: updates.title,
+        genre: updates.genre,
+        synopsis: updates.synopsis,
+        full_outline: updates.fullOutline,
+      }),
+    });
+    return apiToNovel(response);
+  },
+  
+  // 删除小说
+  delete: async (novelId: string): Promise<void> => {
+    await apiRequest(`/api/novels/${novelId}`, {
+      method: 'DELETE',
+    });
+  },
+  
+  // 完整同步小说（包括所有子项）
+  // 注意：这个函数会执行大量的API调用，建议只在必要时使用
+  // 对于频繁的更新操作，建议直接使用对应的API方法
+  syncFull: async (novel: Novel): Promise<Novel> => {
+    try {
+      // 1. 更新基本信息
+      await novelApi.update(novel.id, novel);
+      
+      // 2. 同步卷和章节（简化：只更新存在的，新增的通过批量API处理）
+      const existingVolumes = await volumeApi.getAll(novel.id);
+      const existingVolumeIds = new Set(existingVolumes.map(v => v.id));
+      
+      for (const volume of novel.volumes) {
+        if (existingVolumeIds.has(volume.id)) {
+          // 更新现有卷
+          await volumeApi.update(novel.id, volume.id, {
+            title: volume.title,
+            summary: volume.summary,
+            outline: volume.outline,
+          });
+          
+          // 同步章节（获取现有章节）
+          const existingChapters = await chapterApi.getAll(volume.id);
+          const existingChapterIds = new Set(existingChapters.map(c => c.id));
+          const frontendChapterIds = new Set(volume.chapters.map(c => c.id));
+          
+          // 更新或创建章节
+          for (const chapter of volume.chapters) {
+            if (existingChapterIds.has(chapter.id)) {
+              await chapterApi.update(volume.id, chapter.id, {
+                title: chapter.title,
+                summary: chapter.summary,
+                content: chapter.content,
+                aiPromptHints: chapter.aiPromptHints,
+              });
+            } else {
+              // 新章节通过批量创建
+              await chapterApi.create(volume.id, {
+                title: chapter.title,
+                summary: chapter.summary,
+                content: chapter.content,
+                aiPromptHints: chapter.aiPromptHints,
+              });
+            }
+          }
+          
+          // 删除前端列表中不存在但在数据库中仍然存在的章节
+          for (const existingChapter of existingChapters) {
+            if (!frontendChapterIds.has(existingChapter.id)) {
+              await chapterApi.delete(volume.id, existingChapter.id);
+            }
+          }
+        } else {
+          // 创建新卷
+          const newVolume = await volumeApi.create(novel.id, {
+            title: volume.title,
+            summary: volume.summary,
+            outline: volume.outline,
+          });
+          
+          // 批量创建章节
+          if (volume.chapters.length > 0) {
+            await chapterApi.createBatch(newVolume.id, volume.chapters.map(ch => ({
+              title: ch.title,
+              summary: ch.summary,
+              content: ch.content,
+              aiPromptHints: ch.aiPromptHints,
+            })));
+          }
+        }
+      }
+      
+      // 3. 同步角色
+      const existingCharacters = await characterApi.getAll(novel.id);
+      const novelCharacterIds = new Set(novel.characters.map(c => c.id));
+      
+      // 删除不在列表中的角色
+      for (const existing of existingCharacters) {
+        if (!novelCharacterIds.has(existing.id)) {
+          await characterApi.delete(novel.id, existing.id);
+        }
+      }
+      
+      // 更新或创建角色
+      const charactersToCreate: Partial<Character>[] = [];
+      for (const character of novel.characters) {
+        const existing = existingCharacters.find(c => c.id === character.id);
+        if (existing) {
+          await characterApi.update(novel.id, character.id, character);
+        } else {
+          charactersToCreate.push(character);
+        }
+      }
+      if (charactersToCreate.length > 0) {
+        await characterApi.create(novel.id, charactersToCreate);
+      }
+      
+      // 4. 同步世界观设定
+      const existingWorldSettings = await worldSettingApi.getAll(novel.id);
+      const novelWorldSettingIds = new Set(novel.worldSettings.map(w => w.id));
+      
+      for (const existing of existingWorldSettings) {
+        if (!novelWorldSettingIds.has(existing.id)) {
+          await worldSettingApi.delete(novel.id, existing.id);
+        }
+      }
+      
+      const worldSettingsToCreate: Partial<WorldSetting>[] = [];
+      for (const worldSetting of novel.worldSettings) {
+        const existing = existingWorldSettings.find(w => w.id === worldSetting.id);
+        if (existing) {
+          await worldSettingApi.update(novel.id, worldSetting.id, worldSetting);
+        } else {
+          worldSettingsToCreate.push(worldSetting);
+        }
+      }
+      if (worldSettingsToCreate.length > 0) {
+        await worldSettingApi.create(novel.id, worldSettingsToCreate);
+      }
+      
+      // 5. 同步时间线
+      const existingTimeline = await timelineApi.getAll(novel.id);
+      const novelTimelineIds = new Set(novel.timeline.map(t => t.id));
+      
+      for (const existing of existingTimeline) {
+        if (!novelTimelineIds.has(existing.id)) {
+          await timelineApi.delete(novel.id, existing.id);
+        }
+      }
+      
+      const timelineToCreate: Partial<TimelineEvent>[] = [];
+      for (const timelineEvent of novel.timeline) {
+        const existing = existingTimeline.find(t => t.id === timelineEvent.id);
+        if (existing) {
+          await timelineApi.update(novel.id, timelineEvent.id, timelineEvent);
+        } else {
+          timelineToCreate.push(timelineEvent);
+        }
+      }
+      if (timelineToCreate.length > 0) {
+        await timelineApi.create(novel.id, timelineToCreate);
+      }
+      
+      // 6. 同步伏笔
+      const existingForeshadowings = await foreshadowingApi.getAll(novel.id);
+      const novelForeshadowingIds = new Set(novel.foreshadowings.map(f => f.id));
+      
+      // 删除不在列表中的伏笔
+      for (const existing of existingForeshadowings) {
+        if (!novelForeshadowingIds.has(existing.id)) {
+          await foreshadowingApi.delete(novel.id, existing.id);
+        }
+      }
+      
+      // 更新或创建伏笔
+      const foreshadowingsToCreate: Partial<Foreshadowing>[] = [];
+      for (const foreshadowing of novel.foreshadowings) {
+        const existing = existingForeshadowings.find(f => f.id === foreshadowing.id);
+        if (existing) {
+          await foreshadowingApi.update(novel.id, foreshadowing.id, foreshadowing);
+        } else {
+          foreshadowingsToCreate.push(foreshadowing);
+        }
+      }
+      if (foreshadowingsToCreate.length > 0) {
+        await foreshadowingApi.create(novel.id, foreshadowingsToCreate);
+      }
+      
+      // 返回最新的小说数据
+      return novelApi.getById(novel.id);
+    } catch (error) {
+      console.error('同步小说失败:', error);
+      throw error;
+    }
+  },
+};
+
+// ==================== 卷相关 ====================
+
+export const volumeApi = {
+  getAll: async (novelId: string): Promise<Volume[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/volumes`);
+    return response.map(v => ({
+      id: v.id,
+      title: v.title,
+      summary: v.summary || '',
+      outline: v.outline || '',
+      chapters: (v.chapters || []).map((c: any) => ({
+        id: c.id,
+        title: c.title,
+        summary: c.summary || '',
+        content: c.content || '',
+        aiPromptHints: c.ai_prompt_hints || '',
+      })),
+    }));
+  },
+  
+  create: async (novelId: string, volume: Partial<Volume>): Promise<Volume> => {
+    const response = await apiRequest<any>(`/api/novels/${novelId}/volumes`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: volume.title,
+        summary: volume.summary,
+        outline: volume.outline,
+      }),
+    });
+    return {
+      id: response.id,
+      title: response.title,
+      summary: response.summary || '',
+      outline: response.outline || '',
+      chapters: [],
+    };
+  },
+  
+  update: async (novelId: string, volumeId: string, updates: Partial<Volume>): Promise<Volume> => {
+    const response = await apiRequest<any>(`/api/novels/${novelId}/volumes/${volumeId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        title: updates.title,
+        summary: updates.summary,
+        outline: updates.outline,
+      }),
+    });
+    return {
+      id: response.id,
+      title: response.title,
+      summary: response.summary || '',
+      outline: response.outline || '',
+      chapters: [],
+    };
+  },
+  
+  delete: async (novelId: string, volumeId: string): Promise<void> => {
+    await apiRequest(`/api/novels/${novelId}/volumes/${volumeId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ==================== 章节相关 ====================
+
+export const chapterApi = {
+  getAll: async (volumeId: string): Promise<Chapter[]> => {
+    // 注意：需要通过卷获取章节
+    const response = await apiRequest<any[]>(`/api/volumes/${volumeId}/chapters`);
+    return (response || []).map(c => ({
+      id: c.id,
+      title: c.title,
+      summary: c.summary || '',
+      content: c.content || '',
+      aiPromptHints: c.ai_prompt_hints || '',
+    }));
+  },
+  
+  create: async (volumeId: string, chapter: Partial<Chapter>): Promise<Chapter> => {
+    const response = await apiRequest<any[]>(`/api/volumes/${volumeId}/chapters`, {
+      method: 'POST',
+      body: JSON.stringify([{
+        title: chapter.title,
+        summary: chapter.summary,
+        content: chapter.content,
+        ai_prompt_hints: chapter.aiPromptHints,
+      }]),
+    });
+    const created = response[0];
+    return {
+      id: created.id,
+      title: created.title,
+      summary: created.summary || '',
+      content: created.content || '',
+      aiPromptHints: created.ai_prompt_hints || '',
+    };
+  },
+  
+  createBatch: async (volumeId: string, chapters: Partial<Chapter>[]): Promise<Chapter[]> => {
+    const response = await apiRequest<any[]>(`/api/volumes/${volumeId}/chapters`, {
+      method: 'POST',
+      body: JSON.stringify(chapters.map(c => ({
+        title: c.title,
+        summary: c.summary,
+        content: c.content,
+        ai_prompt_hints: c.aiPromptHints,
+      }))),
+    });
+    return response.map(c => ({
+      id: c.id,
+      title: c.title,
+      summary: c.summary || '',
+      content: c.content || '',
+      aiPromptHints: c.ai_prompt_hints || '',
+    }));
+  },
+  
+  update: async (volumeId: string, chapterId: string, updates: Partial<Chapter>): Promise<Chapter> => {
+    const response = await apiRequest<any>(`/api/volumes/${volumeId}/chapters/${chapterId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        title: updates.title,
+        summary: updates.summary,
+        content: updates.content,
+        ai_prompt_hints: updates.aiPromptHints,
+      }),
+    });
+    return {
+      id: response.id,
+      title: response.title,
+      summary: response.summary || '',
+      content: response.content || '',
+      aiPromptHints: response.ai_prompt_hints || '',
+    };
+  },
+  
+  delete: async (volumeId: string, chapterId: string): Promise<void> => {
+    await apiRequest(`/api/volumes/${volumeId}/chapters/${chapterId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ==================== 角色相关 ====================
+
+export const characterApi = {
+  getAll: async (novelId: string): Promise<Character[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/characters`);
+    return response.map(c => ({
+      id: c.id,
+      name: c.name,
+      age: c.age || '',
+      role: c.role || '',
+      personality: c.personality || '',
+      background: c.background || '',
+      goals: c.goals || '',
+    }));
+  },
+  
+  create: async (novelId: string, characters: Partial<Character>[]): Promise<Character[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/characters`, {
+      method: 'POST',
+      body: JSON.stringify(characters.map(c => ({
+        name: c.name,
+        age: c.age,
+        role: c.role,
+        personality: c.personality,
+        background: c.background,
+        goals: c.goals,
+      }))),
+    });
+    return response.map(c => ({
+      id: c.id,
+      name: c.name,
+      age: c.age || '',
+      role: c.role || '',
+      personality: c.personality || '',
+      background: c.background || '',
+      goals: c.goals || '',
+    }));
+  },
+  
+  update: async (novelId: string, characterId: string, updates: Partial<Character>): Promise<Character> => {
+    const response = await apiRequest<any>(`/api/novels/${novelId}/characters/${characterId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: updates.name,
+        age: updates.age,
+        role: updates.role,
+        personality: updates.personality,
+        background: updates.background,
+        goals: updates.goals,
+      }),
+    });
+    return {
+      id: response.id,
+      name: response.name,
+      age: response.age || '',
+      role: response.role || '',
+      personality: response.personality || '',
+      background: response.background || '',
+      goals: response.goals || '',
+    };
+  },
+  
+  delete: async (novelId: string, characterId: string): Promise<void> => {
+    await apiRequest(`/api/novels/${novelId}/characters/${characterId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ==================== 世界观相关 ====================
+
+export const worldSettingApi = {
+  getAll: async (novelId: string): Promise<WorldSetting[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/world-settings`);
+    return response.map(w => ({
+      id: w.id,
+      title: w.title,
+      description: w.description,
+      category: w.category as any,
+    }));
+  },
+  
+  create: async (novelId: string, worldSettings: Partial<WorldSetting>[]): Promise<WorldSetting[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/world-settings`, {
+      method: 'POST',
+      body: JSON.stringify(worldSettings.map(w => ({
+        title: w.title,
+        description: w.description,
+        category: w.category,
+      }))),
+    });
+    return response.map(w => ({
+      id: w.id,
+      title: w.title,
+      description: w.description,
+      category: w.category as any,
+    }));
+  },
+  
+  update: async (novelId: string, worldSettingId: string, updates: Partial<WorldSetting>): Promise<WorldSetting> => {
+    const response = await apiRequest<any>(`/api/novels/${novelId}/world-settings/${worldSettingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        title: updates.title,
+        description: updates.description,
+        category: updates.category,
+      }),
+    });
+    return {
+      id: response.id,
+      title: response.title,
+      description: response.description,
+      category: response.category as any,
+    };
+  },
+  
+  delete: async (novelId: string, worldSettingId: string): Promise<void> => {
+    await apiRequest(`/api/novels/${novelId}/world-settings/${worldSettingId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ==================== 时间线相关 ====================
+
+export const timelineApi = {
+  getAll: async (novelId: string): Promise<TimelineEvent[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/timeline`);
+    return response.map(t => ({
+      id: t.id,
+      time: t.time,
+      event: t.event,
+      impact: t.impact || '',
+    }));
+  },
+  
+  create: async (novelId: string, timelineEvents: Partial<TimelineEvent>[]): Promise<TimelineEvent[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/timeline`, {
+      method: 'POST',
+      body: JSON.stringify(timelineEvents.map(t => ({
+        time: t.time,
+        event: t.event,
+        impact: t.impact,
+      }))),
+    });
+    return response.map(t => ({
+      id: t.id,
+      time: t.time,
+      event: t.event,
+      impact: t.impact || '',
+    }));
+  },
+  
+  update: async (novelId: string, timelineEventId: string, updates: Partial<TimelineEvent>): Promise<TimelineEvent> => {
+    const response = await apiRequest<any>(`/api/novels/${novelId}/timeline/${timelineEventId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        time: updates.time,
+        event: updates.event,
+        impact: updates.impact,
+      }),
+    });
+    return {
+      id: response.id,
+      time: response.time,
+      event: response.event,
+      impact: response.impact || '',
+    };
+  },
+  
+  delete: async (novelId: string, timelineEventId: string): Promise<void> => {
+    await apiRequest(`/api/novels/${novelId}/timeline/${timelineEventId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ==================== 伏笔相关 ====================
+
+export const foreshadowingApi = {
+  getAll: async (novelId: string): Promise<Foreshadowing[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/foreshadowings`);
+    return response.map(f => ({
+      id: f.id,
+      content: f.content,
+      chapterId: f.chapter_id || undefined,
+      resolvedChapterId: f.resolved_chapter_id || undefined,
+      isResolved: f.is_resolved || "false",
+    }));
+  },
+  
+  create: async (novelId: string, foreshadowings: Partial<Foreshadowing>[]): Promise<Foreshadowing[]> => {
+    const response = await apiRequest<any[]>(`/api/novels/${novelId}/foreshadowings`, {
+      method: 'POST',
+      body: JSON.stringify(foreshadowings.map(f => ({
+        content: f.content,
+        chapter_id: f.chapterId || null,
+        resolved_chapter_id: f.resolvedChapterId || null,
+        is_resolved: f.isResolved || "false",
+      }))),
+    });
+    return response.map(f => ({
+      id: f.id,
+      content: f.content,
+      chapterId: f.chapter_id || undefined,
+      resolvedChapterId: f.resolved_chapter_id || undefined,
+      isResolved: f.is_resolved || "false",
+    }));
+  },
+  
+  update: async (novelId: string, foreshadowingId: string, updates: Partial<Foreshadowing>): Promise<Foreshadowing> => {
+    const response = await apiRequest<any>(`/api/novels/${novelId}/foreshadowings/${foreshadowingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        content: updates.content,
+        chapter_id: updates.chapterId || null,
+        resolved_chapter_id: updates.resolvedChapterId || null,
+        is_resolved: updates.isResolved || "false",
+      }),
+    });
+    return {
+      id: response.id,
+      content: response.content,
+      chapterId: response.chapter_id || undefined,
+      resolvedChapterId: response.resolved_chapter_id || undefined,
+      isResolved: response.is_resolved || "false",
+    };
+  },
+  
+  delete: async (novelId: string, foreshadowingId: string): Promise<void> => {
+    await apiRequest(`/api/novels/${novelId}/foreshadowings/${foreshadowingId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// ==================== 当前小说ID ====================
+
+interface CurrentNovelResponse {
+  novel_id: string | null;
+}
+
+export const currentNovelApi = {
+  get: async (): Promise<string | null> => {
+    const response = await apiRequest<{ novel_id: string | null }>('/api/current-novel');
+    return response.novel_id;
+  },
+  
+  set: async (novelId: string): Promise<void> => {
+    await apiRequest<CurrentNovelResponse>('/api/current-novel', {
+      method: 'PUT',
+      body: JSON.stringify({ novel_id: novelId }),
+    });
+  },
+};
+
