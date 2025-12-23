@@ -12,7 +12,9 @@ import {
   RefreshCcw,
   ArrowRight,
   Plus,
-  X
+  X,
+  ChevronDown,
+  List
 } from 'lucide-react';
 import { writeChapterContent, writeNextChapterContent, expandText, polishText, extractForeshadowingsFromChapter } from '../services/geminiService';
 import { foreshadowingApi } from '../services/apiService';
@@ -40,6 +42,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showConsole, setShowConsole] = useState(false);
   const [consoleMinimized, setConsoleMinimized] = useState(false);
+  const [showMobileChapterMenu, setShowMobileChapterMenu] = useState(false);
   const isMountedRef = useRef(true);
 
   // 添加日志
@@ -617,14 +620,113 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
           <>
             <div className="h-14 border-b px-4 md:px-6 flex items-center justify-between shrink-0">
               <div className="flex flex-col flex-1 min-w-0">
+                {/* 移动端章节选择器 */}
+                <div className="lg:hidden mb-1 relative">
+                  <button
+                    onClick={() => setShowMobileChapterMenu(!showMobileChapterMenu)}
+                    className="flex items-center gap-2 px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] w-full justify-between"
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <List size={16} />
+                      <span className="truncate">
+                        {activeChapterIdx !== null ? `${activeChapterIdx + 1}. ${currentChapter.title}` : '选择章节'}
+                      </span>
+                    </div>
+                    <ChevronDown size={16} className={`transition-transform ${showMobileChapterMenu ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {/* 移动端章节下拉菜单 */}
+                  {showMobileChapterMenu && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-40 bg-black/20"
+                        onClick={() => setShowMobileChapterMenu(false)}
+                      />
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-[60vh] overflow-y-auto">
+                        {/* 卷选择（如果有多卷） */}
+                        {novel.volumes.length > 1 && (
+                          <div className="p-2 border-b bg-slate-50">
+                            <div className="text-xs font-semibold text-slate-500 mb-1">切换卷：</div>
+                            <div className="flex flex-wrap gap-1">
+                              {novel.volumes.map((vol, volIdx) => (
+                                <button
+                                  key={vol.id}
+                                  onClick={() => {
+                                    handleSwitchVolume(volIdx);
+                                    setShowMobileChapterMenu(false);
+                                  }}
+                                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                                    volIdx === activeVolumeIdx
+                                      ? 'bg-indigo-600 text-white'
+                                      : 'bg-white text-slate-600 hover:bg-slate-100 border'
+                                  }`}
+                                >
+                                  {volIdx + 1}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* 章节列表 */}
+                        <div className="p-2">
+                          {chapters.length === 0 ? (
+                            <div className="text-center py-4 text-sm text-slate-400">
+                              还没有章节
+                            </div>
+                          ) : (
+                            chapters.map((ch, idx) => (
+                              <button
+                                key={ch.id}
+                                onClick={() => {
+                                  setActiveChapterIdx(idx);
+                                  setShowMobileChapterMenu(false);
+                                }}
+                                className={`w-full text-left px-3 py-2.5 rounded-lg mb-1 transition-colors ${
+                                  activeChapterIdx === idx
+                                    ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                                    : 'bg-white hover:bg-slate-50 text-slate-700'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm truncate flex-1">
+                                    {idx + 1}. {ch.title}
+                                  </span>
+                                  {ch.content.length > 0 && (
+                                    <CheckCircle2 size={14} className="text-green-500 shrink-0 ml-2" />
+                                  )}
+                                </div>
+                                {ch.summary && (
+                                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{ch.summary}</p>
+                                )}
+                              </button>
+                            ))
+                          )}
+                          <button
+                            onClick={() => {
+                              handleAddChapter();
+                              setShowMobileChapterMenu(false);
+                            }}
+                            className="w-full mt-2 px-3 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Plus size={16} />
+                            添加新章节
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {/* 桌面端章节标题输入 */}
                 <input
                   type="text"
                   value={currentChapter.title}
                   onChange={(e) => handleUpdateChapter(activeChapterIdx!, { title: e.target.value })}
-                  className="text-base md:text-lg font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 px-1 -ml-1 rounded truncate w-full min-h-[44px] md:min-h-0"
+                  className="hidden lg:block text-base md:text-lg font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 px-1 -ml-1 rounded truncate w-full"
                   placeholder="章节标题"
                 />
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 mt-1">
                   <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">
                     字数: {currentChapter.content.split(/\s+/).filter(Boolean).length}
                   </p>
@@ -637,20 +739,22 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                 <button 
                   onClick={handleDraftWithAI}
                   disabled={isWriting}
-                  className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-200 transition-colors flex items-center gap-2"
+                  className="px-3 md:px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-200 transition-colors flex items-center gap-2"
                 >
                   {isWriting ? <RefreshCcw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  {currentChapter.content ? "重新生成草稿" : "AI 生成草稿"}
+                  <span className="hidden sm:inline">{currentChapter.content ? "重新生成草稿" : "AI 生成草稿"}</span>
+                  <span className="sm:hidden">生成</span>
                 </button>
                 {hasNextChapter && (
                   <button 
                     onClick={handleGenerateNextChapter}
                     disabled={isWriting || !currentChapter.content}
-                    className="px-4 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    className="px-3 md:px-4 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                     title={!currentChapter.content ? "请先完成或生成当前章节" : "生成下一章节内容"}
                   >
                     {isWriting ? <RefreshCcw size={14} className="animate-spin" /> : <ArrowRight size={14} />}
-                    生成下一章
+                    <span className="hidden sm:inline">生成下一章</span>
+                    <span className="sm:hidden">下一章</span>
                   </button>
                 )}
               </div>
@@ -684,7 +788,27 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               <Feather size={32} />
             </div>
             <h3 className="text-xl font-bold text-slate-600 mb-2">选择一个章节开始</h3>
-            <p className="max-w-xs text-sm">从列表中选择一个章节，或在大纲视图中创建一个。</p>
+            <p className="max-w-xs text-sm mb-4">从列表中选择一个章节，或在大纲视图中创建一个。</p>
+            {/* 移动端：如果没有章节，显示添加按钮 */}
+            <div className="lg:hidden">
+              {chapters.length === 0 ? (
+                <button
+                  onClick={handleAddChapter}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 mx-auto"
+                >
+                  <Plus size={16} />
+                  添加第一个章节
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowMobileChapterMenu(true)}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 mx-auto"
+                >
+                  <List size={16} />
+                  选择章节
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
