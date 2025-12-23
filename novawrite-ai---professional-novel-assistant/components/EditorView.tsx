@@ -14,7 +14,8 @@ import {
   Plus,
   X,
   ChevronDown,
-  List
+  List,
+  Copy
 } from 'lucide-react';
 import { writeChapterContent, writeNextChapterContent, expandText, polishText, extractForeshadowingsFromChapter } from '../services/geminiService';
 import { foreshadowingApi } from '../services/apiService';
@@ -95,6 +96,29 @@ const EditorView: React.FC<EditorViewProps> = ({
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;
   const hasNextChapter = activeChapterIdx !== null && activeChapterIdx < chapters.length - 1;
   const nextChapterIndex = activeChapterIdx !== null ? activeChapterIdx + 1 : null;
+
+  // 复制章节内容到剪贴板
+  const handleCopyChapter = async () => {
+    if (!currentChapter || !currentChapter.content) {
+      alert('当前章节没有内容可复制');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(currentChapter.content);
+      addLog('success', '✅ 章节内容已复制到剪贴板');
+      // 显示一个临时提示
+      const originalTitle = document.title;
+      document.title = '✓ 已复制';
+      setTimeout(() => {
+        document.title = originalTitle;
+      }, 1000);
+    } catch (err: any) {
+      console.error('复制失败:', err);
+      addLog('error', `❌ 复制失败: ${err?.message || '未知错误'}`);
+      alert('复制失败，请手动复制内容');
+    }
+  };
 
   // 添加新章节
   const handleAddChapter = () => {
@@ -736,6 +760,15 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleCopyChapter}
+                  disabled={!currentChapter.content}
+                  className="px-3 md:px-4 py-1.5 bg-slate-600 text-white text-xs font-bold rounded-lg hover:bg-slate-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  title="复制本章内容到剪贴板"
+                >
+                  <Copy size={14} />
+                  <span className="hidden sm:inline">复制</span>
+                </button>
                 <button 
                   onClick={handleDraftWithAI}
                   disabled={isWriting}
