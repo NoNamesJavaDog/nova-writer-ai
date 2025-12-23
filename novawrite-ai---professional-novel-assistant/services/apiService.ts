@@ -412,8 +412,9 @@ export const novelApi = {
       // 2. 同步卷和章节（简化：只更新存在的，新增的通过批量API处理）
       const existingVolumes = await volumeApi.getAll(novel.id);
       const existingVolumeIds = new Set(existingVolumes.map(v => v.id));
+      const novelVolumes = novel.volumes || [];
       
-      for (const volume of novel.volumes) {
+      for (const volume of novelVolumes) {
         if (existingVolumeIds.has(volume.id)) {
           // 更新现有卷
           await volumeApi.update(novel.id, volume.id, {
@@ -483,7 +484,7 @@ export const novelApi = {
       
       // 删除不在前端列表中的卷（包括其所有章节）
       for (const existingVolume of existingVolumes) {
-        if (!novel.volumes.some(v => v.id === existingVolume.id)) {
+        if (!novelVolumes.some(v => v.id === existingVolume.id)) {
           // 先删除卷下的所有章节
           const volumeChapters = await chapterApi.getAll(existingVolume.id);
           for (const chapter of volumeChapters) {
@@ -496,7 +497,8 @@ export const novelApi = {
       
       // 3. 同步角色
       const existingCharacters = await characterApi.getAll(novel.id);
-      const novelCharacterIds = new Set(novel.characters.map(c => c.id));
+      const novelCharacters = novel.characters || [];
+      const novelCharacterIds = new Set(novelCharacters.map(c => c.id));
       
       // 删除不在列表中的角色
       for (const existing of existingCharacters) {
@@ -507,7 +509,7 @@ export const novelApi = {
       
       // 更新或创建角色
       const charactersToCreate: Partial<Character>[] = [];
-      for (const character of novel.characters) {
+      for (const character of novelCharacters) {
         const existing = existingCharacters.find(c => c.id === character.id);
         if (existing) {
           await characterApi.update(novel.id, character.id, character);
@@ -521,7 +523,8 @@ export const novelApi = {
       
       // 4. 同步世界观设定
       const existingWorldSettings = await worldSettingApi.getAll(novel.id);
-      const novelWorldSettingIds = new Set(novel.worldSettings.map(w => w.id));
+      const novelWorldSettings = novel.worldSettings || [];
+      const novelWorldSettingIds = new Set(novelWorldSettings.map(w => w.id));
       
       for (const existing of existingWorldSettings) {
         if (!novelWorldSettingIds.has(existing.id)) {
@@ -530,7 +533,7 @@ export const novelApi = {
       }
       
       const worldSettingsToCreate: Partial<WorldSetting>[] = [];
-      for (const worldSetting of novel.worldSettings) {
+      for (const worldSetting of novelWorldSettings) {
         const existing = existingWorldSettings.find(w => w.id === worldSetting.id);
         if (existing) {
           await worldSettingApi.update(novel.id, worldSetting.id, worldSetting);
@@ -544,7 +547,8 @@ export const novelApi = {
       
       // 5. 同步时间线
       const existingTimeline = await timelineApi.getAll(novel.id);
-      const novelTimelineIds = new Set(novel.timeline.map(t => t.id));
+      const novelTimeline = novel.timeline || [];
+      const novelTimelineIds = new Set(novelTimeline.map(t => t.id));
       
       for (const existing of existingTimeline) {
         if (!novelTimelineIds.has(existing.id)) {
@@ -553,7 +557,7 @@ export const novelApi = {
       }
       
       const timelineToCreate: Partial<TimelineEvent>[] = [];
-      for (const timelineEvent of novel.timeline) {
+      for (const timelineEvent of novelTimeline) {
         const existing = existingTimeline.find(t => t.id === timelineEvent.id);
         if (existing) {
           await timelineApi.update(novel.id, timelineEvent.id, timelineEvent);
@@ -567,7 +571,8 @@ export const novelApi = {
       
       // 6. 同步伏笔
       const existingForeshadowings = await foreshadowingApi.getAll(novel.id);
-      const novelForeshadowingIds = new Set(novel.foreshadowings.map(f => f.id));
+      const novelForeshadowings = novel.foreshadowings || [];
+      const novelForeshadowingIds = new Set(novelForeshadowings.map(f => f.id));
       
       // 删除不在列表中的伏笔
       for (const existing of existingForeshadowings) {
@@ -578,7 +583,7 @@ export const novelApi = {
       
       // 更新或创建伏笔
       const foreshadowingsToCreate: Partial<Foreshadowing>[] = [];
-      for (const foreshadowing of novel.foreshadowings) {
+      for (const foreshadowing of novelForeshadowings) {
         const existing = existingForeshadowings.find(f => f.id === foreshadowing.id);
         if (existing) {
           await foreshadowingApi.update(novel.id, foreshadowing.id, foreshadowing);
