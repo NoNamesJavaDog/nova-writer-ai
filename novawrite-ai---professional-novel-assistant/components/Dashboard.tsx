@@ -38,16 +38,23 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
     
     const checkActiveTasks = async () => {
       try {
-        const { getNovelTasks } = await import('../services/taskService');
-        const activeTasks = await getNovelTasks(novel.id, 'running');
+        // 使用 getActiveTasks 获取当前用户的所有活跃任务，然后过滤出当前小说的任务
+        const { getActiveTasks } = await import('../services/taskService');
+        const activeTasks = await getActiveTasks();
         
-        if (activeTasks.length > 0) {
+        // 过滤出当前小说的运行中任务
+        const novelActiveTasks = activeTasks.filter(
+          task => task.novel_id === novel.id && task.status === 'running'
+        );
+        
+        if (novelActiveTasks.length > 0) {
           // 如果有运行中的任务，显示提示
-          console.log(`发现 ${activeTasks.length} 个正在执行的任务`);
+          console.log(`发现 ${novelActiveTasks.length} 个正在执行的任务`);
           // 可以在这里添加UI提示，让用户知道有任务正在运行
         }
-      } catch (error) {
-        console.error('检查活跃任务失败:', error);
+      } catch (error: any) {
+        // 静默失败，不显示错误（可能是网络问题或认证问题）
+        console.debug('检查活跃任务失败（可忽略）:', error?.message || error);
       }
     };
     
