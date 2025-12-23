@@ -760,7 +760,7 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-12 py-10 relative">
+            <div className="flex-1 overflow-y-auto px-4 md:px-12 py-6 md:py-10 relative">
               <div className="max-w-[700px] mx-auto">
                 {isWriting && (
                   <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center backdrop-blur-[1px]">
