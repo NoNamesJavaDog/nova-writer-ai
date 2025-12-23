@@ -1303,6 +1303,42 @@ async def set_current_novel(
 
 from task_service import create_task, get_task, get_novel_tasks, get_user_active_tasks, get_task_executor, update_task_progress
 
+# 注意：必须先定义 /api/tasks/active，再定义 /api/tasks/{task_id}，避免路由冲突
+@app.get("/api/tasks/active", response_model=List[TaskResponse])
+async def get_active_tasks(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取当前用户的活跃任务"""
+    tasks = get_user_active_tasks(db, current_user.id)
+    
+    result_list = []
+    import json as json_lib
+    for task in tasks:
+        result = None
+        if task.result:
+            try:
+                result = json_lib.loads(task.result)
+            except:
+                pass
+        
+        result_list.append(TaskResponse(
+            id=task.id,
+            novel_id=task.novel_id,
+            task_type=task.task_type,
+            status=task.status,
+            progress=task.progress,
+            progress_message=task.progress_message,
+            result=result,
+            error_message=task.error_message,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            started_at=task.started_at,
+            completed_at=task.completed_at
+        ))
+    
+    return result_list
+
 @app.get("/api/tasks/{task_id}", response_model=TaskResponse)
 async def get_task_status(
     task_id: str,
