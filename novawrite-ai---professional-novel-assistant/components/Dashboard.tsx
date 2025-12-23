@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Novel, Character, WorldSetting, TimelineEvent, Foreshadowing, Volume } from '../types';
-import { Sparkles, ArrowRight, Users, Globe, History } from 'lucide-react';
+import { Sparkles, ArrowRight, Users, Globe, History, Download } from 'lucide-react';
 import { generateFullOutline, generateCharacters, generateWorldSettings, generateTimelineEvents, generateForeshadowings } from '../services/geminiService';
 import { waitForTask } from '../services/taskHelper';
 import Console, { LogEntry } from './Console';
@@ -99,6 +99,84 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
   // 清空日志
   const clearLogs = () => {
     setLogs([]);
+  };
+
+  // 导出全文
+  const handleExportFullText = () => {
+    try {
+      let fullText = '';
+      
+      // 小说基本信息
+      fullText += `《${novel.title}》\n`;
+      fullText += `类型：${novel.genre}\n`;
+      if (novel.synopsis) {
+        fullText += `\n简介：\n${novel.synopsis}\n`;
+      }
+      fullText += '\n' + '='.repeat(50) + '\n\n';
+      
+      // 完整大纲
+      if (novel.fullOutline) {
+        fullText += '【完整大纲】\n\n';
+        fullText += novel.fullOutline;
+        fullText += '\n\n' + '='.repeat(50) + '\n\n';
+      }
+      
+      // 所有卷和章节
+      const volumes = novel.volumes || [];
+      if (volumes.length > 0) {
+        fullText += '【正文内容】\n\n';
+        
+        volumes.forEach((volume, volIdx) => {
+          // 卷标题
+          fullText += `\n${'='.repeat(50)}\n`;
+          fullText += `第${volIdx + 1}卷：${volume.title}\n`;
+          fullText += `${'='.repeat(50)}\n`;
+          
+          if (volume.summary) {
+            fullText += `\n卷简介：${volume.summary}\n`;
+          }
+          
+          if (volume.outline) {
+            fullText += `\n卷大纲：\n${volume.outline}\n`;
+          }
+          
+          // 章节内容
+          const chapters = volume.chapters || [];
+          chapters.forEach((chapter, chIdx) => {
+            fullText += `\n\n${'-'.repeat(40)}\n`;
+            fullText += `第${volIdx + 1}卷 第${chIdx + 1}章：${chapter.title}\n`;
+            fullText += `${'-'.repeat(40)}\n`;
+            
+            if (chapter.summary) {
+              fullText += `\n章节摘要：${chapter.summary}\n`;
+            }
+            
+            if (chapter.content) {
+              fullText += `\n${chapter.content}\n`;
+            } else {
+              fullText += '\n（本章节内容尚未生成）\n';
+            }
+          });
+        });
+      }
+      
+      // 创建下载链接
+      const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${novel.title || '小说全文'}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      addLog('success', '✅ 全文已导出！');
+    } catch (err: any) {
+      console.error('导出失败:', err);
+      addLog('error', `❌ 导出失败: ${err?.message || '未知错误'}`);
+      alert('导出失败，请稍后重试');
+    }
   };
 
   const handleGenerateOutline = async () => {
@@ -575,13 +653,22 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
                 <p className="text-2xl font-bold text-slate-800">{novel.characters.length}</p>
               </div>
             </div>
-            <button 
-              onClick={onStartWriting}
-              className="w-full mt-4 md:mt-6 py-3.5 md:py-3 border-2 border-slate-100 font-semibold rounded-lg hover:bg-slate-50 active:bg-slate-100 transition-all flex items-center justify-center gap-2 group min-h-[48px] text-sm md:text-base"
-            >
-              <span>跳转到编辑器</span>
-              <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-            </button>
+            <div className="mt-4 md:mt-6 space-y-3">
+              <button 
+                onClick={handleExportFullText}
+                className="w-full py-3.5 md:py-3 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700 active:bg-slate-800 transition-all flex items-center justify-center gap-2 min-h-[48px] text-sm md:text-base"
+              >
+                <Download size={18} />
+                <span>导出全文</span>
+              </button>
+              <button 
+                onClick={onStartWriting}
+                className="w-full py-3.5 md:py-3 border-2 border-slate-100 font-semibold rounded-lg hover:bg-slate-50 active:bg-slate-100 transition-all flex items-center justify-center gap-2 group min-h-[48px] text-sm md:text-base"
+              >
+                <span>跳转到编辑器</span>
+                <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
           </div>
 
           <div className="bg-indigo-50 p-4 md:p-6 rounded-xl border border-indigo-100">
