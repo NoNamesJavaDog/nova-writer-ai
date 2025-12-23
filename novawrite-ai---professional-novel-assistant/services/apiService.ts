@@ -410,7 +410,7 @@ export const novelApi = {
       await novelApi.update(novel.id, novel);
       
       // 2. 同步卷和章节（简化：只更新存在的，新增的通过批量API处理）
-      const existingVolumes = await volumeApi.getAll(novel.id);
+      const existingVolumes = (await volumeApi.getAll(novel.id)) || [];
       const existingVolumeIds = new Set(existingVolumes.map(v => v.id));
       const novelVolumes = novel.volumes || [];
       
@@ -424,7 +424,7 @@ export const novelApi = {
           });
           
           // 同步章节（获取现有章节）
-          const existingChapters = await chapterApi.getAll(volume.id);
+          const existingChapters = (await chapterApi.getAll(volume.id)) || [];
           const existingChapterIds = new Set(existingChapters.map(c => c.id));
           const volumeChapters = volume.chapters || [];
           const frontendChapterIds = new Set(volumeChapters.map(c => c.id));
@@ -486,7 +486,7 @@ export const novelApi = {
       for (const existingVolume of existingVolumes) {
         if (!novelVolumes.some(v => v.id === existingVolume.id)) {
           // 先删除卷下的所有章节
-          const volumeChapters = await chapterApi.getAll(existingVolume.id);
+          const volumeChapters = (await chapterApi.getAll(existingVolume.id)) || [];
           for (const chapter of volumeChapters) {
             await chapterApi.delete(existingVolume.id, chapter.id);
           }
@@ -496,7 +496,7 @@ export const novelApi = {
       }
       
       // 3. 同步角色
-      const existingCharacters = await characterApi.getAll(novel.id);
+      const existingCharacters = (await characterApi.getAll(novel.id)) || [];
       const novelCharacters = novel.characters || [];
       const novelCharacterIds = new Set(novelCharacters.map(c => c.id));
       
@@ -522,7 +522,7 @@ export const novelApi = {
       }
       
       // 4. 同步世界观设定
-      const existingWorldSettings = await worldSettingApi.getAll(novel.id);
+      const existingWorldSettings = (await worldSettingApi.getAll(novel.id)) || [];
       const novelWorldSettings = novel.worldSettings || [];
       const novelWorldSettingIds = new Set(novelWorldSettings.map(w => w.id));
       
@@ -546,7 +546,7 @@ export const novelApi = {
       }
       
       // 5. 同步时间线
-      const existingTimeline = await timelineApi.getAll(novel.id);
+      const existingTimeline = (await timelineApi.getAll(novel.id)) || [];
       const novelTimeline = novel.timeline || [];
       const novelTimelineIds = new Set(novelTimeline.map(t => t.id));
       
@@ -570,7 +570,7 @@ export const novelApi = {
       }
       
       // 6. 同步伏笔
-      const existingForeshadowings = await foreshadowingApi.getAll(novel.id);
+      const existingForeshadowings = (await foreshadowingApi.getAll(novel.id)) || [];
       const novelForeshadowings = novel.foreshadowings || [];
       const novelForeshadowingIds = new Set(novelForeshadowings.map(f => f.id));
       
