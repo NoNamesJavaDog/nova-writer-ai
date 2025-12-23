@@ -18,10 +18,14 @@ API_TIMEOUT_MS = 300000
 def generate_full_outline(
     title: str,
     genre: str,
-    synopsis: str
+    synopsis: str,
+    progress_callback=None
 ) -> dict:
     """生成完整大纲和卷结构"""
     try:
+        if progress_callback:
+            progress_callback.update(10, "开始生成完整大纲...")
+        
         # 生成完整大纲
         outline_prompt = f"""作为一名资深小说家，请为标题为《{title}》的小说创作一份完整的故事大纲。
 类型：{genre}。
@@ -38,6 +42,9 @@ def generate_full_outline(
         )
         
         full_outline = response.text if response.text else ""
+        
+        if progress_callback:
+            progress_callback.update(50, "完整大纲生成完成，开始生成卷结构...")
         
         # 生成卷结构
         volumes_prompt = f"""基于以下完整大纲，将故事划分为多个卷（通常3-5卷）。
@@ -65,10 +72,18 @@ def generate_full_outline(
             except:
                 volumes_data = None
         
-        return {
+        if progress_callback:
+            progress_callback.update(90, "卷结构生成完成，处理结果...")
+        
+        result = {
             "outline": full_outline,
             "volumes": volumes_data
         }
+        
+        if progress_callback:
+            progress_callback.update(100, "生成完成")
+        
+        return result
     except Exception as e:
         raise Exception(f"生成大纲失败: {str(e)}")
 
@@ -254,10 +269,14 @@ def generate_characters(
     title: str,
     genre: str,
     synopsis: str,
-    outline: str
+    outline: str,
+    progress_callback=None
 ) -> list:
     """生成角色列表"""
     try:
+        if progress_callback:
+            progress_callback.update(20, "开始生成角色列表...")
+        
         prompt = f"""基于以下小说信息，生成主要角色列表（3-8个角色）：
 标题：{title}
 类型：{genre}
@@ -272,6 +291,9 @@ def generate_characters(
 - "background"（背景故事）
 - "goals"（目标和动机）"""
         
+        if progress_callback:
+            progress_callback.update(50, "正在调用 AI 生成角色...")
+        
         response = client.models.generate_content(
             model="gemini-3-pro-preview",
             contents=prompt,
@@ -284,9 +306,15 @@ def generate_characters(
         if not response.text:
             raise Exception("API 返回空响应")
         
+        if progress_callback:
+            progress_callback.update(80, "正在处理角色数据...")
+        
         characters = json.loads(response.text)
         if not isinstance(characters, list):
             raise Exception("返回的数据格式不正确")
+        
+        if progress_callback:
+            progress_callback.update(100, "角色生成完成")
         
         return characters
         
@@ -298,10 +326,14 @@ def generate_world_settings(
     title: str,
     genre: str,
     synopsis: str,
-    outline: str
+    outline: str,
+    progress_callback=None
 ) -> list:
     """生成世界观设定"""
     try:
+        if progress_callback:
+            progress_callback.update(20, "开始生成世界观设定...")
+        
         prompt = f"""基于以下小说信息，生成世界观设定列表（5-10个设定）：
 标题：{title}
 类型：{genre}
@@ -313,6 +345,9 @@ def generate_world_settings(
 - "category"（分类：地理、社会、魔法/科技、历史、其他）
 - "description"（详细描述）"""
         
+        if progress_callback:
+            progress_callback.update(50, "正在调用 AI 生成世界观...")
+        
         response = client.models.generate_content(
             model="gemini-3-pro-preview",
             contents=prompt,
@@ -325,9 +360,15 @@ def generate_world_settings(
         if not response.text:
             raise Exception("API 返回空响应")
         
+        if progress_callback:
+            progress_callback.update(80, "正在处理世界观数据...")
+        
         settings = json.loads(response.text)
         if not isinstance(settings, list):
             raise Exception("返回的数据格式不正确")
+        
+        if progress_callback:
+            progress_callback.update(100, "世界观生成完成")
         
         return settings
         
@@ -339,10 +380,14 @@ def generate_timeline_events(
     title: str,
     genre: str,
     synopsis: str,
-    outline: str
+    outline: str,
+    progress_callback=None
 ) -> list:
     """生成时间线事件"""
     try:
+        if progress_callback:
+            progress_callback.update(20, "开始生成时间线事件...")
+        
         prompt = f"""基于以下小说信息，生成重要时间线事件列表（5-10个事件）：
 标题：{title}
 类型：{genre}
@@ -353,6 +398,9 @@ def generate_timeline_events(
 - "time"（时间/年代）
 - "event"（事件标题）
 - "impact"（事件影响和后果）"""
+        
+        if progress_callback:
+            progress_callback.update(50, "正在调用 AI 生成时间线...")
         
         response = client.models.generate_content(
             model="gemini-3-pro-preview",
@@ -366,9 +414,15 @@ def generate_timeline_events(
         if not response.text:
             raise Exception("API 返回空响应")
         
+        if progress_callback:
+            progress_callback.update(80, "正在处理时间线数据...")
+        
         events = json.loads(response.text)
         if not isinstance(events, list):
             raise Exception("返回的数据格式不正确")
+        
+        if progress_callback:
+            progress_callback.update(100, "时间线生成完成")
         
         return events
         
@@ -380,10 +434,14 @@ def generate_foreshadowings_from_outline(
     title: str,
     genre: str,
     synopsis: str,
-    outline: str
+    outline: str,
+    progress_callback=None
 ) -> list:
     """从大纲中生成伏笔"""
     try:
+        if progress_callback:
+            progress_callback.update(20, "开始生成伏笔列表...")
+        
         prompt = f"""基于以下小说信息，生成伏笔列表（5-15个伏笔）：
 标题：{title}
 类型：{genre}
@@ -407,14 +465,132 @@ def generate_foreshadowings_from_outline(
         if not response.text:
             raise Exception("API 返回空响应")
         
+        if progress_callback:
+            progress_callback.update(80, "正在处理伏笔数据...")
+        
         foreshadowings = json.loads(response.text)
         if not isinstance(foreshadowings, list):
             raise Exception("返回的数据格式不正确")
+        
+        if progress_callback:
+            progress_callback.update(100, "伏笔生成完成")
         
         return foreshadowings
         
     except Exception as e:
         raise Exception(f"生成伏笔失败: {str(e)}")
+
+
+def modify_outline_by_dialogue(
+    title: str,
+    genre: str,
+    synopsis: str,
+    current_outline: str,
+    characters: list,
+    world_settings: list,
+    timeline: list,
+    user_message: str,
+    progress_callback=None
+) -> dict:
+    """通过对话修改大纲并联动更新相关设定"""
+    try:
+        if progress_callback:
+            progress_callback.update(10, "开始分析修改请求...")
+        
+        # 构建提示词
+        characters_text = "；".join([f"{c.get('name', '')}（{c.get('role', '')}）：{c.get('personality', '')}" for c in characters[:10]]) if characters else "暂无"
+        world_text = "；".join([f"{w.get('title', '')}（{w.get('category', '')}）：{w.get('description', '')[:100]}" for w in world_settings[:10]]) if world_settings else "暂无"
+        timeline_text = "；".join([f"[{t.get('time', '')}] {t.get('event', '')}" for t in timeline[:10]]) if timeline else "暂无"
+        
+        prompt = f"""你是一名资深小说编辑，用户想要修改小说《{title}》的大纲。
+
+当前小说信息：
+类型：{genre}
+简介：{synopsis}
+
+当前完整大纲：
+{current_outline[:3000]}{'...' if len(current_outline) > 3000 else ''}
+
+当前角色列表：
+{characters_text}
+
+当前世界观设定：
+{world_text}
+
+当前时间线事件：
+{timeline_text}
+
+用户修改请求：{user_message}
+
+请根据用户的修改请求，生成修改后的内容。你需要：
+1. 分析用户的需求，理解要修改的内容
+2. 生成修改后的完整大纲（保持原有结构，只修改需要改变的部分）
+3. 如果涉及到卷结构的修改，生成更新后的卷列表（JSON数组格式）
+4. 如果涉及到角色的新增或修改，生成更新后的角色列表（JSON数组格式）
+5. 如果涉及到世界观的修改，生成更新后的世界观设定列表（JSON数组格式）
+6. 如果涉及到时间线的调整，生成更新后的时间线事件列表（JSON数组格式）
+7. 生成一个变更说明列表（JSON数组，每个元素是一个变更描述字符串）
+
+请以 JSON 格式返回，包含以下字段：
+- "outline": 修改后的完整大纲（字符串）
+- "volumes": 修改后的卷列表（JSON数组，可选，每个对象包含 "title" 和 "summary"）
+- "characters": 修改后的角色列表（JSON数组，可选，每个对象包含 "name", "age", "role", "personality", "background", "goals"）
+- "world_settings": 修改后的世界观设定列表（JSON数组，可选，每个对象包含 "title", "category", "description"）
+- "timeline": 修改后的时间线事件列表（JSON数组，可选，每个对象包含 "time", "event", "impact"）
+- "changes": 变更说明列表（JSON数组，每个元素是字符串）
+
+只返回 JSON 对象，不要包含其他文字说明。"""
+        
+        if progress_callback:
+            progress_callback.update(30, "正在调用 AI 分析并生成修改方案...")
+        
+        response = client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "temperature": 0.8,
+                "max_output_tokens": 16384,
+            }
+        )
+        
+        if not response.text:
+            raise Exception("API 返回空响应")
+        
+        if progress_callback:
+            progress_callback.update(70, "正在处理生成结果...")
+        
+        result = json.loads(response.text)
+        
+        # 确保返回的数据格式正确
+        if not isinstance(result, dict):
+            raise Exception("返回的数据格式不正确，应为 JSON 对象")
+        
+        # 验证必需字段
+        if "outline" not in result:
+            raise Exception("返回数据中缺少 outline 字段")
+        
+        # 确保可选字段为列表或 None
+        if "volumes" in result and result["volumes"] is not None and not isinstance(result["volumes"], list):
+            result["volumes"] = None
+        if "characters" in result and result["characters"] is not None and not isinstance(result["characters"], list):
+            result["characters"] = None
+        if "world_settings" in result and result["world_settings"] is not None and not isinstance(result["world_settings"], list):
+            result["world_settings"] = None
+        if "timeline" in result and result["timeline"] is not None and not isinstance(result["timeline"], list):
+            result["timeline"] = None
+        if "changes" not in result or not isinstance(result.get("changes"), list):
+            result["changes"] = []
+        
+        if progress_callback:
+            progress_callback.update(100, "修改方案生成完成")
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        raise Exception(f"解析 JSON 响应失败: {str(e)}")
+    except Exception as e:
+        raise Exception(f"修改大纲失败: {str(e)}")
 
 
 def extract_foreshadowings_from_chapter(

@@ -10,7 +10,7 @@ import json
 import traceback
 
 from database import get_db, engine, Base
-from models import User, Novel, Volume, Chapter, Character, WorldSetting, TimelineEvent, Foreshadowing, UserCurrentNovel
+from models import User, Novel, Volume, Chapter, Character, WorldSetting, TimelineEvent, Foreshadowing, UserCurrentNovel, Task
 from schemas import (
     UserCreate, UserLogin, UserResponse, Token, RefreshTokenRequest,
     NovelCreate, NovelUpdate, NovelResponse,
@@ -24,7 +24,8 @@ from schemas import (
     GenerateOutlineRequest, GenerateOutlineResponse,
     GenerateVolumeOutlineRequest, GenerateChapterOutlineRequest,
     WriteChapterRequest, GenerateCharactersRequest,
-    GenerateWorldSettingsRequest, GenerateTimelineEventsRequest
+    GenerateWorldSettingsRequest, GenerateTimelineEventsRequest,
+    ModifyOutlineByDialogueRequest, ModifyOutlineByDialogueResponse
 )
 from auth import (
     verify_password, get_password_hash, create_access_token, create_refresh_token,
@@ -1297,6 +1298,129 @@ async def set_current_novel(
     return CurrentNovelResponse(novel_id=current_novel.novel_id)
 
 
+# ==================== 任务管理 ====================
+
+from task_service import create_task, get_task, get_novel_tasks, get_user_active_tasks, get_task_executor, update_task_progress
+
+@app.get("/api/tasks/{task_id}", response_model=TaskResponse)
+async def get_task_status(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取任务状态"""
+    task = get_task(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    if task.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权访问此任务")
+    
+    result = None
+    if task.result:
+        import json as json_lib
+        try:
+            result = json_lib.loads(task.result)
+        except:
+            pass
+    
+    return TaskResponse(
+        id=task.id,
+        novel_id=task.novel_id,
+        task_type=task.task_type,
+        status=task.status,
+        progress=task.progress,
+        progress_message=task.progress_message,
+        result=result,
+        error_message=task.error_message,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+        started_at=task.started_at,
+        completed_at=task.completed_at
+    )
+
+@app.get("/api/novels/{novel_id}/tasks", response_model=List[TaskResponse])
+async def get_novel_task_list(
+    novel_id: str,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取小说的任务列表"""
+    # 验证小说所有权
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.user_id == current_user.id
+    ).first()
+    
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    
+    tasks = get_novel_tasks(db, novel_id, status)
+    
+    result_list = []
+    import json as json_lib
+    for task in tasks:
+        result = None
+        if task.result:
+            try:
+                result = json_lib.loads(task.result)
+            except:
+                pass
+        
+        result_list.append(TaskResponse(
+            id=task.id,
+            novel_id=task.novel_id,
+            task_type=task.task_type,
+            status=task.status,
+            progress=task.progress,
+            progress_message=task.progress_message,
+            result=result,
+            error_message=task.error_message,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            started_at=task.started_at,
+            completed_at=task.completed_at
+        ))
+    
+    return result_list
+
+@app.get("/api/tasks/active", response_model=List[TaskResponse])
+async def get_active_tasks(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取当前用户的活跃任务"""
+    tasks = get_user_active_tasks(db, current_user.id)
+    
+    result_list = []
+    import json as json_lib
+    for task in tasks:
+        result = None
+        if task.result:
+            try:
+                result = json_lib.loads(task.result)
+            except:
+                pass
+        
+        result_list.append(TaskResponse(
+            id=task.id,
+            novel_id=task.novel_id,
+            task_type=task.task_type,
+            status=task.status,
+            progress=task.progress,
+            progress_message=task.progress_message,
+            result=result,
+            error_message=task.error_message,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            started_at=task.started_at,
+            completed_at=task.completed_at
+        ))
+    
+    return result_list
+
+
 # ==================== AI 相关 ====================
 
 from gemini_service import (
@@ -1308,40 +1432,76 @@ from gemini_service import (
     generate_world_settings,
     generate_timeline_events,
     generate_foreshadowings_from_outline,
-    extract_foreshadowings_from_chapter
+    extract_foreshadowings_from_chapter,
+    modify_outline_by_dialogue
 )
 
-@app.post("/api/ai/generate-outline", response_model=GenerateOutlineResponse)
+@app.post("/api/ai/generate-outline")
 async def api_generate_outline(
     request: GenerateOutlineRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """生成完整大纲和卷结构"""
+    """生成完整大纲和卷结构（异步任务模式）"""
     try:
-        # 在后台任务中执行，避免阻塞
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # 如果没有 novel_id，返回错误（要求前端必须传递）
+        if not request.novel_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请求中缺少 novel_id"
+            )
         
-        result = await loop.run_in_executor(
-            None,
-            generate_full_outline,
-            request.title,
-            request.genre,
-            request.synopsis
+        # 验证小说所有权
+        novel = db.query(Novel).filter(
+            Novel.id == request.novel_id,
+            Novel.user_id == current_user.id
+        ).first()
+        
+        if not novel:
+            raise HTTPException(status_code=404, detail="小说不存在")
+        
+        # 创建任务
+        task_data = {
+            "title": request.title,
+            "genre": request.genre,
+            "synopsis": request.synopsis
+        }
+        
+        task = create_task(
+            db=db,
+            novel_id=request.novel_id,
+            user_id=current_user.id,
+            task_type="generate_outline",
+            task_data=task_data
         )
-        return GenerateOutlineResponse(
-            outline=result["outline"],
-            volumes=result.get("volumes")
-        )
+        
+        # 定义任务执行函数
+        def task_function():
+            from task_service import ProgressCallback
+            progress_callback = ProgressCallback(task.id)
+            return generate_full_outline(
+                request.title,
+                request.genre,
+                request.synopsis,
+                progress_callback=progress_callback
+            )
+        
+        # 提交任务到后台执行
+        executor = get_task_executor()
+        executor.submit_task(task.id, task_function)
+        
+        # 返回任务ID，前端可以通过任务ID查询进度
+        return {
+            "task_id": task.id,
+            "status": task.status,
+            "message": "任务已创建，正在后台执行"
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        # 不泄露详细错误信息（全局异常处理器会处理）
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="生成大纲失败，请稍后重试" if not DEBUG else str(e)
+            detail="创建任务失败，请稍后重试" if not DEBUG else str(e)
         )
 
 @app.post("/api/ai/generate-volume-outline")
@@ -1461,30 +1621,70 @@ async def api_write_chapter(
 async def api_generate_characters(
     request: Request,
     characters_request: GenerateCharactersRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """生成角色列表"""
+    """生成角色列表（异步任务模式）"""
     try:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        characters = await loop.run_in_executor(
-            None,
-            generate_characters,
-            characters_request.title,
-            characters_request.genre,
-            characters_request.synopsis,
-            characters_request.outline
+        if not characters_request.novel_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请求中缺少 novel_id"
+            )
+        
+        # 验证小说所有权
+        novel = db.query(Novel).filter(
+            Novel.id == characters_request.novel_id,
+            Novel.user_id == current_user.id
+        ).first()
+        
+        if not novel:
+            raise HTTPException(status_code=404, detail="小说不存在")
+        
+        # 创建任务
+        task_data = {
+            "title": characters_request.title,
+            "genre": characters_request.genre,
+            "synopsis": characters_request.synopsis,
+            "outline": characters_request.outline
+        }
+        
+        task = create_task(
+            db=db,
+            novel_id=characters_request.novel_id,
+            user_id=current_user.id,
+            task_type="generate_characters",
+            task_data=task_data
         )
-        return characters
+        
+        # 定义任务执行函数
+        def task_function():
+            from task_service import ProgressCallback
+            progress_callback = ProgressCallback(task.id)
+            return generate_characters(
+                characters_request.title,
+                characters_request.genre,
+                characters_request.synopsis,
+                characters_request.outline,
+                progress_callback=progress_callback
+            )
+        
+        # 提交任务到后台执行
+        executor = get_task_executor()
+        executor.submit_task(task.id, task_function)
+        
+        # 返回任务ID
+        return {
+            "task_id": task.id,
+            "status": task.status,
+            "message": "任务已创建，正在后台执行"
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        # 不泄露详细错误信息（全局异常处理器会处理）
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="生成大纲失败，请稍后重试" if not DEBUG else str(e)
+            detail="创建任务失败，请稍后重试" if not DEBUG else str(e)
         )
 
 @app.post("/api/ai/generate-world-settings")
@@ -1523,30 +1723,70 @@ async def api_generate_world_settings(
 async def api_generate_timeline_events(
     request: Request,
     timeline_request: GenerateTimelineEventsRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """生成时间线事件"""
+    """生成时间线事件（异步任务模式）"""
     try:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        events = await loop.run_in_executor(
-            None,
-            generate_timeline_events,
-            timeline_request.title,
-            timeline_request.genre,
-            timeline_request.synopsis,
-            timeline_request.outline
+        if not timeline_request.novel_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请求中缺少 novel_id"
+            )
+        
+        # 验证小说所有权
+        novel = db.query(Novel).filter(
+            Novel.id == timeline_request.novel_id,
+            Novel.user_id == current_user.id
+        ).first()
+        
+        if not novel:
+            raise HTTPException(status_code=404, detail="小说不存在")
+        
+        # 创建任务
+        task_data = {
+            "title": timeline_request.title,
+            "genre": timeline_request.genre,
+            "synopsis": timeline_request.synopsis,
+            "outline": timeline_request.outline
+        }
+        
+        task = create_task(
+            db=db,
+            novel_id=timeline_request.novel_id,
+            user_id=current_user.id,
+            task_type="generate_timeline_events",
+            task_data=task_data
         )
-        return events
+        
+        # 定义任务执行函数
+        def task_function():
+            from task_service import ProgressCallback
+            progress_callback = ProgressCallback(task.id)
+            return generate_timeline_events(
+                timeline_request.title,
+                timeline_request.genre,
+                timeline_request.synopsis,
+                timeline_request.outline,
+                progress_callback=progress_callback
+            )
+        
+        # 提交任务到后台执行
+        executor = get_task_executor()
+        executor.submit_task(task.id, task_function)
+        
+        # 返回任务ID
+        return {
+            "task_id": task.id,
+            "status": task.status,
+            "message": "任务已创建，正在后台执行"
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        # 不泄露详细错误信息（全局异常处理器会处理）
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="生成大纲失败，请稍后重试" if not DEBUG else str(e)
+            detail="创建任务失败，请稍后重试" if not DEBUG else str(e)
         )
 
 @app.post("/api/ai/generate-foreshadowings")
@@ -1577,6 +1817,96 @@ async def api_generate_foreshadowings(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="生成伏笔失败，请稍后重试" if not DEBUG else str(e)
+        )
+
+@app.post("/api/ai/modify-outline-by-dialogue", response_model=ModifyOutlineByDialogueResponse)
+async def api_modify_outline_by_dialogue(
+    request: ModifyOutlineByDialogueRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """通过对话修改大纲（异步任务模式）"""
+    try:
+        # 验证小说所有权
+        novel = db.query(Novel).filter(
+            Novel.id == request.novel_id,
+            Novel.user_id == current_user.id
+        ).first()
+        
+        if not novel:
+            raise HTTPException(status_code=404, detail="小说不存在")
+        
+        # 准备数据
+        characters_data = [{
+            "name": c.name,
+            "age": c.age or "",
+            "role": c.role or "",
+            "personality": c.personality or "",
+            "background": c.background or "",
+            "goals": c.goals or ""
+        } for c in novel.characters] if novel.characters else []
+        
+        world_settings_data = [{
+            "title": w.title,
+            "category": w.category,
+            "description": w.description
+        } for w in novel.world_settings] if novel.world_settings else []
+        
+        timeline_data = [{
+            "time": t.time,
+            "event": t.event,
+            "impact": t.impact or ""
+        } for t in novel.timeline_events] if novel.timeline_events else []
+        
+        # 创建任务
+        task_data = {
+            "user_message": request.user_message,
+            "title": novel.title,
+            "genre": novel.genre,
+            "synopsis": novel.synopsis or "",
+            "current_outline": novel.full_outline or ""
+        }
+        
+        task = create_task(
+            db=db,
+            novel_id=request.novel_id,
+            user_id=current_user.id,
+            task_type="modify_outline_by_dialogue",
+            task_data=task_data
+        )
+        
+        # 定义任务执行函数
+        def task_function():
+            from task_service import ProgressCallback
+            progress_callback = ProgressCallback(task.id)
+            return modify_outline_by_dialogue(
+                title=novel.title,
+                genre=novel.genre,
+                synopsis=novel.synopsis or "",
+                current_outline=novel.full_outline or "",
+                characters=characters_data,
+                world_settings=world_settings_data,
+                timeline=timeline_data,
+                user_message=request.user_message,
+                progress_callback=progress_callback
+            )
+        
+        # 提交任务到后台执行
+        executor = get_task_executor()
+        executor.submit_task(task.id, task_function)
+        
+        # 返回任务ID
+        return {
+            "task_id": task.id,
+            "status": task.status,
+            "message": "任务已创建，正在后台执行"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="创建任务失败，请稍后重试" if not DEBUG else str(e)
         )
 
 @app.post("/api/ai/extract-foreshadowings-from-chapter")

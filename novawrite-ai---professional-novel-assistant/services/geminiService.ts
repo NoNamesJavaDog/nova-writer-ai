@@ -61,25 +61,37 @@ async function processStreamResponse(
   return fullText;
 }
 
-// 生成完整大纲和卷结构
+// 生成完整大纲和卷结构（任务模式）
 export const generateFullOutline = async (
   title: string,
   genre: string,
   synopsis: string,
+  novelId: string,
   onChunk?: StreamChunkCallback
-) => {
+): Promise<{ outline: string; volumes: any[] | null; taskId?: string }> => {
   try {
-    const response = await apiRequest<{ outline: string; volumes: any[] | null }>(
+    // 创建任务
+    const taskResponse = await apiRequest<{ task_id: string; status: string; message: string }>(
       "/api/ai/generate-outline",
       {
         method: "POST",
-        body: JSON.stringify({ title, genre, synopsis }),
+        body: JSON.stringify({ title, genre, synopsis, novel_id: novelId }),
       }
     );
 
+    // 如果返回了 task_id，说明是异步任务模式
+    if (taskResponse.task_id) {
+      return {
+        outline: '',
+        volumes: null,
+        taskId: taskResponse.task_id,
+      };
+    }
+
+    // 兼容旧的同步模式（不应该到达这里）
     return {
-      outline: response.outline,
-      volumes: response.volumes,
+      outline: '',
+      volumes: null,
     };
   } catch (error: any) {
     throw new Error(`生成大纲失败: ${error.message || "未知错误"}`);
@@ -275,65 +287,88 @@ export const polishText = async (text: string) => {
   throw new Error("润色文本功能暂未实现");
 };
 
-// 生成角色列表
+// 生成角色列表（任务模式）
 export const generateCharacters = async (
   title: string,
   genre: string,
   synopsis: string,
-  outline: string
-) => {
+  outline: string,
+  novelId: string
+): Promise<{ taskId?: string; characters?: any[] }> => {
   try {
-    const characters = await apiRequest<any[]>(
+    const response = await apiRequest<{ task_id: string; status: string; message: string } | any[]>(
       "/api/ai/generate-characters",
       {
         method: "POST",
-        body: JSON.stringify({ title, genre, synopsis, outline }),
+        body: JSON.stringify({ title, genre, synopsis, outline, novel_id: novelId }),
       }
     );
 
-    return characters;
+    // 如果返回了 task_id，说明是异步任务模式
+    if (response && typeof response === 'object' && 'task_id' in response) {
+      return { taskId: (response as any).task_id };
+    }
+
+    // 兼容旧的同步模式（不应该到达这里）
+    return { characters: response as any[] };
   } catch (error: any) {
     throw new Error(`生成角色列表失败: ${error.message || "未知错误"}`);
   }
 };
 
-// 生成世界观设定
+// 生成世界观设定（任务模式）
 export const generateWorldSettings = async (
   title: string,
   genre: string,
   synopsis: string,
-  outline: string
-) => {
+  outline: string,
+  novelId: string
+): Promise<{ taskId?: string; settings?: any[] }> => {
   try {
-    const settings = await apiRequest<any[]>(
+    const response = await apiRequest<{ task_id: string; status: string; message: string } | any[]>(
       "/api/ai/generate-world-settings",
       {
         method: "POST",
-        body: JSON.stringify({ title, genre, synopsis, outline }),
+        body: JSON.stringify({ title, genre, synopsis, outline, novel_id: novelId }),
       }
     );
 
-    return settings;
+    // 如果返回了 task_id，说明是异步任务模式
+    if (response && typeof response === 'object' && 'task_id' in response) {
+      return { taskId: (response as any).task_id };
+    }
+
+    // 兼容旧的同步模式（不应该到达这里）
+    return { settings: response as any[] };
   } catch (error: any) {
     throw new Error(`生成世界观设定失败: ${error.message || "未知错误"}`);
   }
 };
 
-// 生成时间线事件
+// 生成时间线事件（任务模式）
 export const generateTimelineEvents = async (
   title: string,
   genre: string,
   synopsis: string,
-  outline: string
-) => {
+  outline: string,
+  novelId: string
+): Promise<{ taskId?: string; events?: any[] }> => {
   try {
-    const events = await apiRequest<any[]>(
+    const response = await apiRequest<{ task_id: string; status: string; message: string } | any[]>(
       "/api/ai/generate-timeline-events",
       {
         method: "POST",
-        body: JSON.stringify({ title, genre, synopsis, outline }),
+        body: JSON.stringify({ title, genre, synopsis, outline, novel_id: novelId }),
       }
     );
+
+    // 如果返回了 task_id，说明是异步任务模式
+    if (response && typeof response === 'object' && 'task_id' in response) {
+      return { taskId: (response as any).task_id };
+    }
+
+    // 兼容旧的同步模式（不应该到达这里）
+    return { events: response as any[] };
 
     return events;
   } catch (error: any) {
@@ -341,23 +376,30 @@ export const generateTimelineEvents = async (
   }
 };
 
-// 生成伏笔（从大纲）
+// 生成伏笔（从大纲，任务模式）
 export const generateForeshadowings = async (
   title: string,
   genre: string,
   synopsis: string,
-  outline: string
-) => {
+  outline: string,
+  novelId: string
+): Promise<{ taskId?: string; foreshadowings?: any[] }> => {
   try {
-    const foreshadowings = await apiRequest<any[]>(
+    const response = await apiRequest<{ task_id: string; status: string; message: string } | any[]>(
       "/api/ai/generate-foreshadowings",
       {
         method: "POST",
-        body: JSON.stringify({ title, genre, synopsis, outline }),
+        body: JSON.stringify({ title, genre, synopsis, outline, novel_id: novelId }),
       }
     );
 
-    return foreshadowings;
+    // 如果返回了 task_id，说明是异步任务模式
+    if (response && typeof response === 'object' && 'task_id' in response) {
+      return { taskId: (response as any).task_id };
+    }
+
+    // 兼容旧的同步模式（不应该到达这里）
+    return { foreshadowings: response as any[] };
   } catch (error: any) {
     throw new Error(`生成伏笔失败: ${error.message || "未知错误"}`);
   }
@@ -392,12 +434,35 @@ export const extractForeshadowingsFromChapter = async (
   }
 };
 
-// 通过对话修改大纲并联动更新相关设定
+// 通过对话修改大纲并联动更新相关设定（任务模式）
 export const modifyOutlineByDialogue = async (
   novel: Novel,
-  userMessage: string,
-  onChunk?: StreamChunkCallback
-) => {
-  // TODO: 在后端实现此功能
-  throw new Error("对话修改大纲功能暂未实现");
+  userMessage: string
+): Promise<{ taskId?: string; result?: any }> => {
+  try {
+    if (!novel.id) {
+      throw new Error("小说ID不存在");
+    }
+
+    const response = await apiRequest<{ task_id: string; status: string; message: string }>(
+      "/api/ai/modify-outline-by-dialogue",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          novel_id: novel.id,
+          user_message: userMessage,
+        }),
+      }
+    );
+
+    // 如果返回了 task_id，说明是异步任务模式
+    if (response.task_id) {
+      return { taskId: response.task_id };
+    }
+
+    // 兼容旧的同步模式（不应该到达这里）
+    return {};
+  } catch (error: any) {
+    throw new Error(`修改大纲失败: ${error.message || "未知错误"}`);
+  }
 };

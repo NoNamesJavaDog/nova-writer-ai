@@ -1,6 +1,6 @@
 """Pydantic 数据模型"""
 from pydantic import BaseModel, EmailStr, field_validator, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 import re
 
@@ -228,6 +228,7 @@ class GenerateOutlineRequest(BaseModel):
     title: str
     genre: str
     synopsis: str
+    novel_id: Optional[str] = None  # 小说ID，用于关联任务
 
 class GenerateOutlineResponse(BaseModel):
     outline: str
@@ -267,16 +268,47 @@ class GenerateCharactersRequest(BaseModel):
     genre: str
     synopsis: str
     outline: str
+    novel_id: Optional[str] = None  # 小说ID，用于关联任务
 
 class GenerateWorldSettingsRequest(BaseModel):
     title: str
     genre: str
     synopsis: str
     outline: str
+    novel_id: Optional[str] = None  # 小说ID，用于关联任务
 
 class GenerateTimelineEventsRequest(BaseModel):
     title: str
     genre: str
     synopsis: str
     outline: str
+    novel_id: Optional[str] = None  # 小说ID，用于关联任务
+
+class ModifyOutlineByDialogueRequest(BaseModel):
+    novel_id: str
+    user_message: str
+
+class ModifyOutlineByDialogueResponse(BaseModel):
+    task_id: str
+    status: str
+    message: str
+
+# ==================== 任务相关 ====================
+
+class TaskResponse(BaseModel):
+    id: str
+    novel_id: str
+    task_type: str
+    status: str  # pending, running, completed, failed
+    progress: int  # 0-100
+    progress_message: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    created_at: int
+    updated_at: int
+    started_at: Optional[int] = None
+    completed_at: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
 

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Novel, Character, WorldSetting, TimelineEvent, Foreshadowing, Volume } from '../types';
 import { Sparkles, ArrowRight, Users, Globe, History } from 'lucide-react';
 import { generateFullOutline, generateCharacters, generateWorldSettings, generateTimelineEvents, generateForeshadowings } from '../services/geminiService';
+import { waitForTask } from '../services/taskHelper';
 import Console, { LogEntry } from './Console';
 
 interface DashboardProps {
@@ -30,6 +31,28 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
       console.log('❌ Dashboard 组件已卸载');
     };
   }, []);
+  
+  // 检查活跃任务的独立 useEffect
+  useEffect(() => {
+    if (!novel.id) return;
+    
+    const checkActiveTasks = async () => {
+      try {
+        const { getNovelTasks } = await import('../services/taskService');
+        const activeTasks = await getNovelTasks(novel.id, 'running');
+        
+        if (activeTasks.length > 0) {
+          // 如果有运行中的任务，显示提示
+          console.log(`发现 ${activeTasks.length} 个正在执行的任务`);
+          // 可以在这里添加UI提示，让用户知道有任务正在运行
+        }
+      } catch (error) {
+        console.error('检查活跃任务失败:', error);
+      }
+    };
+    
+    checkActiveTasks();
+  }, [novel.id]);
 
   // 添加日志
   const addLog = (type: LogEntry['type'], message: string) => {
@@ -77,6 +100,11 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
       return;
     }
     
+    if (!novel.id) {
+      alert("小说ID不存在，请先保存小说！");
+      return;
+    }
+    
     if (!isMountedRef.current) return;
     setLoading(true);
     setShowConsole(true);
@@ -84,35 +112,76 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
     clearLogs();
     
     try {
-      // 1. 生成大纲和卷结构
+      // 1. 生成大纲和卷结构（使用任务系统）
       addLog('step', '📝 步骤 1/5: 生成完整大纲和卷结构...');
       addLog('info', `📖 小说标题: 《${novel.title}》`);
       addLog('info', `📚 类型: ${novel.genre}`);
       addLog('info', `💡 创意摘要: ${novel.synopsis.substring(0, 100)}${novel.synopsis.length > 100 ? '...' : ''}`);
-      addLog('info', '🚀 开始调用 Gemini API...');
+      addLog('info', '🚀 开始创建生成任务...');
       
-      // 显示提示词
-      const outlinePrompt = `作为一名资深小说家，请为标题为《${novel.title}》的小说创作一份完整的故事大纲。
-类型：${novel.genre}。
-初始创意：${novel.synopsis}。
-请提供多幕结构、关键情节转折，以及从开头到结尾的逻辑发展。`;
-      addLog('info', '📋 提示词 (生成完整大纲):');
-      addLog('info', '─'.repeat(60));
-      outlinePrompt.split('\n').forEach(line => {
-        addLog('info', `   ${line.trim()}`);
+      // 导入任务服务
+      const { generateFullOutline } = await import('../services/geminiService');
+      const taskServiceModule = await import('../services/taskService');
+      const { startPolling } = taskServiceModule;
+      
+      // 创建任务
+      const taskResult = await generateFullOutline(novel.title, novel.genre, novel.synopsis, novel.id);
+      
+      if (!taskResult.taskId) {
+        throw new Error('任务创建失败：未返回任务ID');
+      }
+      
+      addLog('info', `✅ 任务已创建 (ID: ${taskResult.taskId})，正在后台执行...`);
+      addLog('info', '💡 您可以离开此页面，任务将继续在后台执行');
+      
+      // 开始轮询任务状态
+      let outlineResult: { outline: string; volumes: any[] | null } | null = null;
+      
+      await new Promise<void>((resolve, reject) => {
+        startPolling(taskResult.taskId!, {
+          onProgress: (task) => {
+            if (!isMountedRef.current) return;
+            // 更新进度消息
+            if (task.progress_message) {
+              // 可以在这里更新日志显示进度
+              const progressMsg = `⏳ ${task.progress}% - ${task.progress_message}`;
+              // 只保留最后一条进度日志，避免日志过多
+              setLogs(prev => {
+                const filtered = prev.filter(log => !log.message.includes('⏳'));
+                return [...filtered, {
+                  id: `progress-${Date.now()}`,
+                  timestamp: Date.now(),
+                  type: 'info' as const,
+                  message: progressMsg
+                }];
+              });
+            }
+          },
+          onComplete: (task) => {
+            if (!isMountedRef.current) return;
+            addLog('success', '✅ 大纲生成完成！');
+            
+            if (task.result) {
+              outlineResult = {
+                outline: task.result.outline || '',
+                volumes: task.result.volumes || null,
+              };
+            }
+            resolve();
+          },
+          onError: (task) => {
+            if (!isMountedRef.current) return;
+            addLog('error', `❌ 任务失败: ${task.error_message || '未知错误'}`);
+            reject(new Error(task.error_message || '任务执行失败'));
+          },
+        });
       });
-      addLog('info', '─'.repeat(60));
       
-      // 创建流式传输回调
-      const onChunk = (chunk: string, isComplete: boolean) => {
-        if (isComplete) {
-          addLog('success', '\n✅ 生成完成！');
-        } else if (chunk) {
-          appendStreamChunk(chunk);
-        }
-      };
+      if (!outlineResult || !outlineResult.outline) {
+        throw new Error('生成失败：返回的大纲为空');
+      }
       
-      const result = await generateFullOutline(novel.title, novel.genre, novel.synopsis, onChunk);
+      const result = outlineResult;
       if (!result.outline || !result.outline.trim()) {
         throw new Error("生成失败：返回的大纲为空");
       }
@@ -188,7 +257,14 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
           });
           addLog('info', '─'.repeat(60));
           
-          const charactersData = await generateCharacters(novel.title, novel.genre, novel.synopsis, result.outline);
+          const charactersResult = await generateCharacters(novel.title, novel.genre, novel.synopsis, result.outline, novel.id!);
+          let charactersData: any[];
+          if (charactersResult.taskId) {
+            addLog('info', `✅ 任务已创建 (ID: ${charactersResult.taskId})，等待完成...`);
+            charactersData = await waitForTask<any[]>(charactersResult.taskId);
+          } else {
+            charactersData = charactersResult.characters || [];
+          }
           const characters: Character[] = charactersData.map((c: any, i: number) => ({
             id: `char-${Date.now()}-${i}`,
             name: c.name || `角色${i + 1}`,
@@ -238,7 +314,14 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         });
         addLog('info', '─'.repeat(60));
         
-        const worldData = await generateWorldSettings(novel.title, novel.genre, novel.synopsis, result.outline);
+        const worldResult = await generateWorldSettings(novel.title, novel.genre, novel.synopsis, result.outline, novel.id!);
+        let worldData: any[];
+        if (worldResult.taskId) {
+          addLog('info', `✅ 任务已创建 (ID: ${worldResult.taskId})，等待完成...`);
+          worldData = await waitForTask<any[]>(worldResult.taskId);
+        } else {
+          worldData = worldResult.settings || [];
+        }
         const worldSettings: WorldSetting[] = worldData.map((w: any, i: number) => ({
           id: `world-${Date.now()}-${i}`,
           title: w.title || `设定${i + 1}`,
@@ -285,7 +368,14 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         });
         addLog('info', '─'.repeat(60));
         
-        const timelineData = await generateTimelineEvents(novel.title, novel.genre, novel.synopsis, result.outline);
+        const timelineResult = await generateTimelineEvents(novel.title, novel.genre, novel.synopsis, result.outline, novel.id!);
+        let timelineData: any[];
+        if (timelineResult.taskId) {
+          addLog('info', `✅ 任务已创建 (ID: ${timelineResult.taskId})，等待完成...`);
+          timelineData = await waitForTask<any[]>(timelineResult.taskId);
+        } else {
+          timelineData = timelineResult.events || [];
+        }
         const timeline: TimelineEvent[] = timelineData.map((t: any, i: number) => ({
           id: `timeline-${Date.now()}-${i}`,
           time: t.time || '未知时间',
@@ -309,7 +399,14 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         addLog('step', generateExtras ? '💡 步骤 5/6: 生成伏笔线索...' : '💡 步骤 4/5: 生成伏笔线索...');
         addLog('info', '🤔 AI 正在分析大纲中的伏笔...');
         
-        const foreshadowingsData = await generateForeshadowings(novel.title, novel.genre, novel.synopsis, result.outline);
+        const foreshadowingsResult = await generateForeshadowings(novel.title, novel.genre, novel.synopsis, result.outline, novel.id!);
+        let foreshadowingsData: any[];
+        if (foreshadowingsResult.taskId) {
+          addLog('info', `✅ 任务已创建 (ID: ${foreshadowingsResult.taskId})，等待完成...`);
+          foreshadowingsData = await waitForTask<any[]>(foreshadowingsResult.taskId);
+        } else {
+          foreshadowingsData = foreshadowingsResult.foreshadowings || [];
+        }
         const foreshadowings: Foreshadowing[] = foreshadowingsData.map((f: any, i: number) => ({
           id: `foreshadowing-${Date.now()}-${i}`,
           content: f.content || `伏笔${i + 1}`,

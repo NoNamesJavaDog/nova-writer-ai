@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Novel } from '../types';
 import { MessageCircle, Send, X, Bot, User } from 'lucide-react';
 import { modifyOutlineByDialogue } from '../services/geminiService';
+import { startPolling } from '../services/taskService';
 import Console, { LogEntry } from './Console';
 
 interface OutlineChatProps {
@@ -130,18 +131,57 @@ const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose }
       addLog('info', '   ...');
       addLog('info', '─'.repeat(60));
       
-      addLog('step', '🚀 调用 AI 生成修改后的内容...');
+      addLog('step', '🚀 创建修改任务...');
       
-      // 创建流式传输回调
-      const onChunk = (chunk: string, isComplete: boolean) => {
-        if (isComplete) {
-          addLog('success', '\n✅ 生成完成！');
-        } else if (chunk) {
-          appendStreamChunk(chunk);
-        }
-      };
+      // 创建任务
+      const taskResult = await modifyOutlineByDialogue(novel, userMessage);
       
-      const result = await modifyOutlineByDialogue(novel, userMessage, onChunk);
+      if (!taskResult.taskId) {
+        throw new Error('任务创建失败：未返回任务ID');
+      }
+      
+      addLog('info', `✅ 任务已创建 (ID: ${taskResult.taskId})，正在后台执行...`);
+      addLog('info', '💡 您可以离开此页面，任务将继续在后台执行');
+      
+      // 等待任务完成（带进度更新）
+      addLog('step', '⏳ 等待任务完成...');
+      
+      // 自定义任务等待，以便显示进度
+      let result: any = null;
+      await new Promise<void>((resolve, reject) => {
+        startPolling(taskResult.taskId, {
+          onProgress: (task) => {
+            // 更新进度消息
+            if (task.progress_message) {
+              const progressMsg = `⏳ ${task.progress}% - ${task.progress_message}`;
+              setLogs(prev => {
+                const filtered = prev.filter(log => !log.message.includes('⏳'));
+                return [...filtered, {
+                  id: `progress-${Date.now()}`,
+                  timestamp: Date.now(),
+                  type: 'info' as const,
+                  message: progressMsg
+                }];
+              });
+            }
+          },
+          onComplete: (task) => {
+            if (task.result) {
+              result = task.result;
+              resolve();
+            } else {
+              reject(new Error('任务完成但结果为空'));
+            }
+          },
+          onError: (task) => {
+            reject(new Error(task.error_message || '任务执行失败'));
+          },
+        });
+      });
+      
+      if (!result.outline) {
+        throw new Error('生成失败：返回的大纲为空');
+      }
       
       addLog('success', '✅ 大纲修改完成！');
       if (result.changes && result.changes.length > 0) {

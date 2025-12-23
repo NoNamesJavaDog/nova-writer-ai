@@ -68,6 +68,29 @@ const App: React.FC = () => {
     });
   }, []);
 
+  // 加载活跃任务并在 Dashboard 显示进度
+  useEffect(() => {
+    if (!currentUser || !currentNovelId) return;
+    
+    const loadActiveTasks = async () => {
+      try {
+        const { getActiveTasks } = await import('./services/taskService');
+        const tasks = await getActiveTasks();
+        
+        // 如果有活跃任务，可以在这里显示通知或更新UI
+        if (tasks.length > 0) {
+          console.log(`发现 ${tasks.length} 个活跃任务`);
+          // 可以在这里添加任务通知UI，比如显示一个通知栏
+          // 或者如果当前在 Dashboard 页面，可以恢复任务进度显示
+        }
+      } catch (error) {
+        console.error('加载活跃任务失败:', error);
+      }
+    };
+    
+    loadActiveTasks();
+  }, [currentUser, currentNovelId]);
+
   // 从API加载小说列表
   const loadNovels = async () => {
     if (!currentUser || !isMountedRef.current) return;

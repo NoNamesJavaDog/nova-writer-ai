@@ -142,3 +142,21 @@ class UserCurrentNovel(Base):
     novel_id = Column(String(36), ForeignKey("novels.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(BigInteger, nullable=False)
 
+class Task(Base):
+    __tablename__ = "tasks"
+    
+    id = Column(String(36), primary_key=True)
+    novel_id = Column(String(36), ForeignKey("novels.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    task_type = Column(String(50), nullable=False)  # generate_outline, generate_volume_outline, write_chapter, etc.
+    task_data = Column(Text, nullable=True)  # JSON 格式的任务参数
+    status = Column(String(20), nullable=False, default="pending")  # pending, running, completed, failed
+    progress = Column(Integer, nullable=False, default=0)  # 0-100
+    progress_message = Column(Text, nullable=True)
+    result = Column(Text, nullable=True)  # JSON 格式的任务结果
+    error_message = Column(Text, nullable=True)
+    created_at = Column(BigInteger, nullable=False)
+    updated_at = Column(BigInteger, nullable=False)
+    started_at = Column(BigInteger, nullable=True)
+    completed_at = Column(BigInteger, nullable=True)
+
