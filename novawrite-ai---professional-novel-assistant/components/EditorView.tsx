@@ -18,7 +18,7 @@ import {
   Copy
 } from 'lucide-react';
 import { writeChapterContent, writeNextChapterContent, expandText, polishText, extractForeshadowingsFromChapter } from '../services/geminiService';
-import { foreshadowingApi } from '../services/apiService';
+import { foreshadowingApi, chapterApi } from '../services/apiService';
 import Console, { LogEntry } from './Console';
 
 interface EditorViewProps {
@@ -236,7 +236,25 @@ const EditorView: React.FC<EditorViewProps> = ({
       if (!isMountedRef.current) return;
       
       if (content && content.trim()) {
+        // 先更新本地状态
         handleUpdateContent(content);
+        
+        // 立即保存到数据库
+        try {
+          const chapter = chapters[activeChapterIdx];
+          const volume = novel.volumes[activeVolumeIdx];
+          await chapterApi.update(volume.id, chapter.id, {
+            title: chapter.title,
+            summary: chapter.summary,
+            content: content,
+            aiPromptHints: chapter.aiPromptHints,
+          });
+          addLog('success', `✅ 章节内容已保存到数据库！`);
+        } catch (saveError: any) {
+          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
+          console.error('保存章节内容失败:', saveError);
+        }
+        
         addLog('success', `✅ 章节内容生成成功！`);
         addLog('info', `📄 内容长度: ${content.length} 字符`);
         
@@ -321,8 +339,26 @@ const EditorView: React.FC<EditorViewProps> = ({
       const expanded = await expandText(selectedText, currentChapter?.summary || "");
       if (!isMountedRef.current) return;
       
-      if (expanded && expanded.trim() && currentChapter) {
-        handleUpdateContent(currentChapter.content.replace(selectedText, expanded));
+      if (expanded && expanded.trim() && currentChapter && activeChapterIdx !== null) {
+        const newContent = currentChapter.content.replace(selectedText, expanded);
+        handleUpdateContent(newContent);
+        
+        // 立即保存到数据库
+        try {
+          const volume = novel.volumes[activeVolumeIdx];
+          const chapter = chapters[activeChapterIdx];
+          await chapterApi.update(volume.id, chapter.id, {
+            title: chapter.title,
+            summary: chapter.summary,
+            content: newContent,
+            aiPromptHints: chapter.aiPromptHints,
+          });
+          addLog('success', '✅ 文本扩展已保存到数据库！');
+        } catch (saveError: any) {
+          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
+          console.error('保存扩展文本失败:', saveError);
+        }
+        
         addLog('success', '✅ 文本扩展成功！');
       } else {
         addLog('error', '❌ 扩展失败：返回的内容为空');
@@ -367,8 +403,26 @@ const EditorView: React.FC<EditorViewProps> = ({
       const polished = await polishText(selectedText);
       if (!isMountedRef.current) return;
       
-      if (polished && polished.trim() && currentChapter) {
-        handleUpdateContent(currentChapter.content.replace(selectedText, polished));
+      if (polished && polished.trim() && currentChapter && activeChapterIdx !== null) {
+        const newContent = currentChapter.content.replace(selectedText, polished);
+        handleUpdateContent(newContent);
+        
+        // 立即保存到数据库
+        try {
+          const volume = novel.volumes[activeVolumeIdx];
+          const chapter = chapters[activeChapterIdx];
+          await chapterApi.update(volume.id, chapter.id, {
+            title: chapter.title,
+            summary: chapter.summary,
+            content: newContent,
+            aiPromptHints: chapter.aiPromptHints,
+          });
+          addLog('success', '✅ 文本润色已保存到数据库！');
+        } catch (saveError: any) {
+          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
+          console.error('保存润色文本失败:', saveError);
+        }
+        
         addLog('success', '✅ 文本润色成功！');
       } else {
         addLog('error', '❌ 润色失败：返回的内容为空');
