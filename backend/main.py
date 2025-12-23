@@ -30,6 +30,11 @@ from auth import (
     verify_password, get_password_hash, create_access_token, create_refresh_token,
     verify_refresh_token, get_user_by_username_or_email, get_current_user, generate_uuid
 )
+from captcha import create_captcha, verify_captcha
+from auth_helper import (
+    reset_fail_counters, increment_password_fail, increment_captcha_fail,
+    is_account_locked, requires_captcha, LOCK_DURATION
+)
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
@@ -157,14 +162,62 @@ async def login(request: Request, credentials: UserLogin, db: Session = Depends(
     """用户登录"""
     user = get_user_by_username_or_email(db, credentials.username_or_email)
     
-    if not user or not verify_password(credentials.password, user.password_hash):
+    # 检查账户是否存在
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名/邮箱或密码错误",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # 更新最后登录时间
+    # 检查账户是否被锁定
+    if is_account_locked(user):
+        lock_time_left = (user.locked_until - int(time.time() * 1000)) // 1000
+        minutes_left = lock_time_left // 60
+        seconds_left = lock_time_left % 60
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"账户已被锁定，请在 {minutes_left} 分 {seconds_left} 秒后重试",
+        )
+    
+    # 检查是否需要验证码
+    need_captcha = requires_captcha(user)
+    if need_captcha:
+        if not credentials.captcha_id or not credentials.captcha_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="需要输入验证码",
+            )
+        
+        # 验证验证码
+        if not verify_captcha(credentials.captcha_id, credentials.captcha_code):
+            increment_captcha_fail(user)
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="验证码错误",
+            )
+    
+    # 验证密码
+    if not verify_password(credentials.password, user.password_hash):
+        increment_password_fail(user)
+        db.commit()
+        
+        # 如果现在需要验证码，提示用户
+        if requires_captcha(user):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="密码错误，需要输入验证码",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="用户名/邮箱或密码错误",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    
+    # 登录成功，重置失败计数器
+    reset_fail_counters(user)
     user.last_login_at = int(time.time() * 1000)
     db.commit()
     
@@ -185,6 +238,42 @@ async def login(request: Request, credentials: UserLogin, db: Session = Depends(
         )
     }
 
+
+@app.get("/api/auth/captcha")
+async def get_captcha():
+    """获取验证码"""
+    captcha_id, image_data_url = create_captcha()
+    return {
+        "captcha_id": captcha_id,
+        "image": image_data_url
+    }
+
+@app.get("/api/auth/login-status")
+async def get_login_status(username_or_email: str, db: Session = Depends(get_db)):
+    """检查登录状态（是否需要验证码等）"""
+    user = get_user_by_username_or_email(db, username_or_email)
+    
+    if not user:
+        return {
+            "requires_captcha": False,
+            "locked": False
+        }
+    
+    locked = is_account_locked(user)
+    need_captcha = requires_captcha(user)
+    
+    result = {
+        "requires_captcha": need_captcha,
+        "locked": locked
+    }
+    
+    if locked:
+        lock_time_left = (user.locked_until - int(time.time() * 1000)) // 1000
+        minutes_left = lock_time_left // 60
+        seconds_left = lock_time_left % 60
+        result["lock_message"] = f"账户已被锁定，请在 {minutes_left} 分 {seconds_left} 秒后重试"
+    
+    return result
 
 @app.get("/api/auth/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):

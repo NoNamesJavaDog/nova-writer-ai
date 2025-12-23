@@ -12,6 +12,11 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(BigInteger, nullable=False)
     last_login_at = Column(BigInteger, nullable=True)
+    # 登录失败计数
+    password_fail_count = Column(Integer, nullable=False, default=0)  # 密码失败次数
+    captcha_fail_count = Column(Integer, nullable=False, default=0)  # 验证码失败次数
+    locked_until = Column(BigInteger, nullable=True)  # 账户锁定到期时间（时间戳，毫秒）
+    last_fail_time = Column(BigInteger, nullable=True)  # 最后失败时间（用于重置计数器）
     
     novels = relationship("Novel", back_populates="user", cascade="all, delete-orphan")
 

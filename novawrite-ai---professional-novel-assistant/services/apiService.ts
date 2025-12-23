@@ -207,6 +207,19 @@ export interface RegisterData {
 export interface LoginData {
   username_or_email: string;
   password: string;
+  captcha_id?: string;
+  captcha_code?: string;
+}
+
+export interface CaptchaResponse {
+  captcha_id: string;
+  image: string;
+}
+
+export interface LoginStatusResponse {
+  requires_captcha: boolean;
+  locked: boolean;
+  lock_message?: string;
 }
 
 export const authApi = {
@@ -224,6 +237,20 @@ export const authApi = {
       setRefreshToken(response.refresh_token);
     }
     return response;
+  },
+  
+  // 获取验证码
+  getCaptcha: async (): Promise<CaptchaResponse> => {
+    return apiRequest<CaptchaResponse>('/api/auth/captcha', {
+      method: 'GET',
+    }, false);
+  },
+  
+  // 检查登录状态（是否需要验证码等）
+  checkLoginStatus: async (usernameOrEmail: string): Promise<LoginStatusResponse> => {
+    return apiRequest<LoginStatusResponse>(`/api/auth/login-status?username_or_email=${encodeURIComponent(usernameOrEmail)}`, {
+      method: 'GET',
+    }, false);
   },
   
   // 登录

@@ -12,15 +12,28 @@ interface ForeshadowingViewProps {
 const ForeshadowingView: React.FC<ForeshadowingViewProps> = ({ novel, updateNovel }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingForeshadowing, setEditingForeshadowing] = useState<Partial<Foreshadowing>>({});
+  
+  // 确保 novel 和必要的属性存在
+  if (!novel) {
+    return (
+      <div className="max-w-5xl mx-auto py-8 px-6">
+        <div className="text-center py-20">
+          <p className="text-slate-400">加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   // 获取章节标题
   const getChapterTitle = (chapterId?: string): string => {
     if (!chapterId) return '大纲阶段';
-    for (const volume of novel.volumes) {
-      const chapter = volume.chapters.find(c => c.id === chapterId);
+    const volumes = novel.volumes || [];
+    for (const volume of volumes) {
+      const chapters = volume.chapters || [];
+      const chapter = chapters.find(c => c.id === chapterId);
       if (chapter) {
-        const volumeIndex = novel.volumes.indexOf(volume) + 1;
-        const chapterIndex = volume.chapters.findIndex(c => c.id === chapterId) + 1;
+        const volumeIndex = volumes.indexOf(volume) + 1;
+        const chapterIndex = chapters.findIndex(c => c.id === chapterId) + 1;
         return `第${volumeIndex}卷 第${chapterIndex}章：${chapter.title}`;
       }
     }
@@ -30,8 +43,10 @@ const ForeshadowingView: React.FC<ForeshadowingViewProps> = ({ novel, updateNove
   // 获取所有章节选项
   const getAllChapters = (): Array<{ id: string; title: string; volumeTitle: string; volumeIndex: number; chapterIndex: number }> => {
     const chapters: Array<{ id: string; title: string; volumeTitle: string; volumeIndex: number; chapterIndex: number }> = [];
-    novel.volumes.forEach((volume, volumeIndex) => {
-      volume.chapters.forEach((chapter, chapterIndex) => {
+    const volumes = novel.volumes || [];
+    volumes.forEach((volume, volumeIndex) => {
+      const volumeChapters = volume.chapters || [];
+      volumeChapters.forEach((chapter, chapterIndex) => {
         chapters.push({
           id: chapter.id,
           title: chapter.title,
@@ -50,7 +65,8 @@ const ForeshadowingView: React.FC<ForeshadowingViewProps> = ({ novel, updateNove
       content: '新伏笔',
       isResolved: 'false'
     };
-    updateNovel({ foreshadowings: [...novel.foreshadowings, newForeshadowing] });
+    const currentForeshadowings = novel.foreshadowings || [];
+    updateNovel({ foreshadowings: [...currentForeshadowings, newForeshadowing] });
     setEditingId(newForeshadowing.id);
     setEditingForeshadowing(newForeshadowing);
   };
@@ -58,8 +74,9 @@ const ForeshadowingView: React.FC<ForeshadowingViewProps> = ({ novel, updateNove
   const updateForeshadowing = async (id: string, updates: Partial<Foreshadowing>) => {
     try {
       await foreshadowingApi.update(novel.id, id, updates);
+      const currentForeshadowings = novel.foreshadowings || [];
       updateNovel({
-        foreshadowings: novel.foreshadowings.map(f => f.id === id ? { ...f, ...updates } : f)
+        foreshadowings: currentForeshadowings.map(f => f.id === id ? { ...f, ...updates } : f)
       });
       setEditingId(null);
     } catch (error: any) {
@@ -72,8 +89,9 @@ const ForeshadowingView: React.FC<ForeshadowingViewProps> = ({ novel, updateNove
     if (!confirm('确定要删除这个伏笔吗？')) return;
     try {
       await foreshadowingApi.delete(novel.id, id);
+      const currentForeshadowings = novel.foreshadowings || [];
       updateNovel({
-        foreshadowings: novel.foreshadowings.filter(f => f.id !== id)
+        foreshadowings: currentForeshadowings.filter(f => f.id !== id)
       });
     } catch (error: any) {
       console.error('删除伏笔失败:', error);
@@ -87,6 +105,9 @@ const ForeshadowingView: React.FC<ForeshadowingViewProps> = ({ novel, updateNove
   };
 
   const chapters = getAllChapters();
+  
+  // 确保 foreshadowings 数组存在
+  const foreshadowings = novel.foreshadowings || [];
 
   return (
     <div className="max-w-5xl mx-auto py-4 md:py-8 px-4 md:px-6">
@@ -104,7 +125,7 @@ const ForeshadowingView: React.FC<ForeshadowingViewProps> = ({ novel, updateNove
       </div>
 
       <div className="space-y-4">
-        {novel.foreshadowings.map((foreshadowing) => {
+        {foreshadowings.map((foreshadowing) => {
           const isResolved = foreshadowing.isResolved === 'true';
           const sourceChapterTitle = getChapterTitle(foreshadowing.chapterId);
           const resolvedChapterTitle = foreshadowing.resolvedChapterId ? getChapterTitle(foreshadowing.resolvedChapterId) : null;
@@ -237,7 +258,7 @@ const ForeshadowingView: React.FC<ForeshadowingViewProps> = ({ novel, updateNove
         })}
       </div>
 
-      {novel.foreshadowings.length === 0 && (
+      {foreshadowings.length === 0 && (
         <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300">
           <Circle className="text-slate-200 mx-auto mb-4" size={48} />
           <p className="text-slate-400 font-medium italic">还没有伏笔记录。</p>

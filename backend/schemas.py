@@ -35,6 +35,8 @@ class UserCreate(UserBase):
 class UserLogin(BaseModel):
     username_or_email: str
     password: str
+    captcha_id: Optional[str] = None  # 验证码ID
+    captcha_code: Optional[str] = None  # 验证码内容
 
 class UserResponse(UserBase):
     id: str

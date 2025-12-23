@@ -1,6 +1,15 @@
 // 用户认证服务 - 使用后端API
 import { User } from '../types';
-import { authApi, LoginData, RegisterData } from './apiService';
+import { authApi, LoginData, RegisterData, CaptchaResponse, LoginStatusResponse } from './apiService';
+
+// 导出验证码相关函数
+export const getCaptcha = async (): Promise<CaptchaResponse> => {
+  return authApi.getCaptcha();
+};
+
+export const checkLoginStatus = async (usernameOrEmail: string): Promise<LoginStatusResponse> => {
+  return authApi.checkLoginStatus(usernameOrEmail);
+};
 
 const STORAGE_KEY_CURRENT_USER = 'nova_write_current_user'; // 当前登录用户（缓存）
 
@@ -39,10 +48,17 @@ export const register = async (username: string, email: string, password: string
 };
 
 // 登录
-export const login = async (usernameOrEmail: string, password: string): Promise<User> => {
+export const login = async (
+  usernameOrEmail: string, 
+  password: string, 
+  captchaId?: string, 
+  captchaCode?: string
+): Promise<User> => {
   const data: LoginData = {
     username_or_email: usernameOrEmail,
-    password: password
+    password: password,
+    captcha_id: captchaId,
+    captcha_code: captchaCode
   };
   
   try {
