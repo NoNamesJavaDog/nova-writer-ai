@@ -41,9 +41,19 @@ const App: React.FC = () => {
   const [novels, setNovels] = useState<Novel[]>([]);
   const [currentNovelId, setCurrentNovelId] = useState<string>('');
 
-  const [activeView, setActiveView] = useState<AppView>('dashboard');
-  const [activeVolumeIdx, setActiveVolumeIdx] = useState(0);
-  const [activeChapterIdx, setActiveChapterIdx] = useState<number | null>(null);
+  // 从localStorage恢复视图状态
+  const [activeView, setActiveView] = useState<AppView>(() => {
+    const saved = localStorage.getItem('nova_write_active_view');
+    return (saved as AppView) || 'dashboard';
+  });
+  const [activeVolumeIdx, setActiveVolumeIdx] = useState(() => {
+    const saved = localStorage.getItem('nova_write_active_volume_idx');
+    return saved ? parseInt(saved, 10) : 0;
+  });
+  const [activeChapterIdx, setActiveChapterIdx] = useState<number | null>(() => {
+    const saved = localStorage.getItem('nova_write_active_chapter_idx');
+    return saved ? parseInt(saved, 10) : null;
+  });
   const [showNovelManager, setShowNovelManager] = useState(false);
   
   // 移动端侧边栏状态
