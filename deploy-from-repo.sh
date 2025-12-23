@@ -98,7 +98,8 @@ if [ -d "$FRONTEND_DIR/dist" ]; then
   # 清空并复制新文件
   rm -rf "$WEB_DIR"/*
   cp -r "$FRONTEND_DIR/dist"/* "$WEB_DIR/"
-  chown -R www-data:www-data "$WEB_DIR"
+  # OpenWrt 系统使用 root 用户，而不是 www-data
+  chown -R root:root "$WEB_DIR" 2>/dev/null || chown -R www-data:www-data "$WEB_DIR" 2>/dev/null || true
   chmod -R 755 "$WEB_DIR"
   echo "✅ 前端文件已部署到 $WEB_DIR"
 else
