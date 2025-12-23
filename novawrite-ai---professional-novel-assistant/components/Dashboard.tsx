@@ -661,6 +661,14 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
                 <Download size={18} />
                 <span>导出全文</span>
               </button>
+            <div className="space-y-3">
+              <button 
+                onClick={handleExportFullText}
+                className="w-full py-3.5 md:py-3 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700 active:bg-slate-800 transition-all flex items-center justify-center gap-2 min-h-[48px] text-sm md:text-base"
+              >
+                <Download size={18} />
+                <span>导出全文</span>
+              </button>
               <button 
                 onClick={onStartWriting}
                 className="w-full py-3.5 md:py-3 border-2 border-slate-100 font-semibold rounded-lg hover:bg-slate-50 active:bg-slate-100 transition-all flex items-center justify-center gap-2 group min-h-[48px] text-sm md:text-base"
@@ -668,6 +676,7 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
                 <span>跳转到编辑器</span>
                 <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
               </button>
+            </div>
             </div>
           </div>
 
