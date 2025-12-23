@@ -83,8 +83,9 @@ class WorldSettingBase(BaseModel):
     description: str
     category: str
     
-    @validator('category')
-    def validate_category(cls, v):
+    @field_validator('category')
+    @classmethod
+    def validate_category(cls, v: str) -> str:
         valid_categories = ['地理', '社会', '魔法/科技', '历史', '其他']
         if v not in valid_categories:
             raise ValueError(f'分类必须是以下值之一: {", ".join(valid_categories)}')
