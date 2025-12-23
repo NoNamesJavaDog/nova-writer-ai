@@ -838,14 +838,23 @@ async def create_world_settings(
     now = int(time.time() * 1000)
     world_settings = []
     
+    # 允许的分类值（与数据库约束保持一致）
+    valid_categories = ['地理', '社会', '魔法/科技', '历史', '其他']
+    
     for idx, world_setting_data in enumerate(world_settings_data):
+        # 验证并规范化分类值
+        category = world_setting_data.category
+        if category not in valid_categories:
+            # 如果分类不在有效列表中，默认使用"其他"
+            category = '其他'
+        
         world_setting_id = generate_uuid()
         world_setting = WorldSetting(
             id=world_setting_id,
             novel_id=novel_id,
             title=world_setting_data.title,
             description=world_setting_data.description,
-            category=world_setting_data.category,
+            category=category,
             setting_order=next_order + idx,
             created_at=now,
             updated_at=now
