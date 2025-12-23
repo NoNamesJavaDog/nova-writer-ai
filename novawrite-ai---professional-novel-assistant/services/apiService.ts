@@ -425,10 +425,11 @@ export const novelApi = {
           // 同步章节（获取现有章节）
           const existingChapters = await chapterApi.getAll(volume.id);
           const existingChapterIds = new Set(existingChapters.map(c => c.id));
-          const frontendChapterIds = new Set(volume.chapters.map(c => c.id));
+          const volumeChapters = volume.chapters || [];
+          const frontendChapterIds = new Set(volumeChapters.map(c => c.id));
           
           // 更新或创建章节
-          for (const chapter of volume.chapters) {
+          for (const chapter of volumeChapters) {
             if (existingChapterIds.has(chapter.id)) {
               await chapterApi.update(volume.id, chapter.id, {
                 title: chapter.title,
@@ -455,8 +456,8 @@ export const novelApi = {
           }
           
           // 重新排序章节：按照前端传入的顺序
-          if (volume.chapters.length > 0) {
-            const chapterIds = volume.chapters.map(ch => ch.id);
+          if (volumeChapters.length > 0) {
+            const chapterIds = volumeChapters.map(ch => ch.id);
             await chapterApi.reorder(volume.id, chapterIds);
           }
         } else {
