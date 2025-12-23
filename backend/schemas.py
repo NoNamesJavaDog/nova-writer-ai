@@ -1,6 +1,6 @@
 """Pydantic 数据模型"""
 from pydantic import BaseModel, EmailStr, field_validator, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 import re
 
@@ -310,13 +310,13 @@ class TaskResponse(BaseModel):
     status: str  # pending, running, completed, failed
     progress: int  # 0-100
     progress_message: Optional[str] = None
-    result: Optional[Dict[str, Any]] = None
+    result: Optional[Union[Dict[str, Any], List[Any]]] = None  # 支持字典或列表
     error_message: Optional[str] = None
     created_at: int
     updated_at: int
     started_at: Optional[int] = None
     completed_at: Optional[int] = None
-    
+
     class Config:
         from_attributes = True
 
