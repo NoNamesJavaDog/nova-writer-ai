@@ -519,11 +519,27 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
       if (!isMountedRef.current) return;
       
       if (content && content.trim()) {
-        // 更新下一章节的内容
+        // 更新下一章节的内容（本地状态）
         const newVolumes = [...novel.volumes];
         const nextChapter = newVolumes[activeVolumeIdx].chapters[nextChapterIndex];
         nextChapter.content = content;
         updateNovel({ volumes: newVolumes });
+        
+        // 立即保存到数据库
+        try {
+          const volume = novel.volumes[activeVolumeIdx];
+          const nextChapterObj = chapters[nextChapterIndex];
+          await chapterApi.update(volume.id, nextChapterObj.id, {
+            title: nextChapterObj.title,
+            summary: nextChapterObj.summary,
+            content: content,
+            aiPromptHints: nextChapterObj.aiPromptHints,
+          });
+          addLog('success', `✅ 下一章节内容已保存到数据库！`);
+        } catch (saveError: any) {
+          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
+          console.error('保存下一章节内容失败:', saveError);
+        }
         
         // 提取下一章节的伏笔
         try {
