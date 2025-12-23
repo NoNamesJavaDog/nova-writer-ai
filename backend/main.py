@@ -1854,7 +1854,12 @@ async def api_modify_outline_by_dialogue(
         if not novel:
             raise HTTPException(status_code=404, detail="小说不存在")
         
-        # 准备数据
+        # 准备数据（在会话内显式加载relationship，避免延迟加载问题）
+        # 使用eager loading或者在会话关闭前访问所有需要的属性
+        characters_list = list(novel.characters) if novel.characters else []
+        world_settings_list = list(novel.world_settings) if novel.world_settings else []
+        timeline_events_list = list(novel.timeline_events) if novel.timeline_events else []
+        
         characters_data = [{
             "name": c.name,
             "age": c.age or "",
@@ -1862,19 +1867,19 @@ async def api_modify_outline_by_dialogue(
             "personality": c.personality or "",
             "background": c.background or "",
             "goals": c.goals or ""
-        } for c in novel.characters] if novel.characters else []
+        } for c in characters_list]
         
         world_settings_data = [{
             "title": w.title,
             "category": w.category,
             "description": w.description
-        } for w in novel.world_settings] if novel.world_settings else []
+        } for w in world_settings_list]
         
         timeline_data = [{
             "time": t.time,
             "event": t.event,
             "impact": t.impact or ""
-        } for t in novel.timeline_events] if novel.timeline_events else []
+        } for t in timeline_events_list]
         
         # 创建任务
         task_data = {
