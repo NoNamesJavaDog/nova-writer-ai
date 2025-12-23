@@ -55,6 +55,19 @@ const App: React.FC = () => {
   // 使用 ref 跟踪组件是否已挂载
   const isMountedRef = useRef(true);
 
+  // 设置 token 过期回调
+  useEffect(() => {
+    setOnTokenExpired(() => {
+      // Token 过期时，清除用户状态并跳转到登录页
+      logout();
+      setCurrentUser(null);
+      setNovels([]);
+      setCurrentNovelId('');
+      // 清除用户缓存
+      localStorage.removeItem('nova_write_current_user');
+    });
+  }, []);
+
   // 从API加载小说列表
   const loadNovels = async () => {
     if (!currentUser || !isMountedRef.current) return;

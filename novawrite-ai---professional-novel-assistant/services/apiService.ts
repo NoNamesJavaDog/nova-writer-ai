@@ -40,6 +40,14 @@ const clearAllTokens = (): void => {
   clearRefreshToken();
 };
 
+// Token 过期回调函数
+let onTokenExpiredCallback: (() => void) | null = null;
+
+// 设置 token 过期回调
+export const setOnTokenExpired = (callback: () => void): void => {
+  onTokenExpiredCallback = callback;
+};
+
 // 刷新访问令牌
 let isRefreshing = false;
 let refreshPromise: Promise<LoginResponse | null> | null = null;
@@ -129,6 +137,10 @@ export async function apiRequest<T>(
         if (!retryResponse.ok) {
           if (retryResponse.status === 401) {
             clearAllTokens();
+            // 触发 token 过期回调
+            if (onTokenExpiredCallback) {
+              onTokenExpiredCallback();
+            }
             throw new Error('登录已过期，请重新登录');
           }
           const errorData = await retryResponse.json().catch(() => ({}));
@@ -144,12 +156,20 @@ export async function apiRequest<T>(
       } else {
         // 刷新失败，清除令牌
         clearAllTokens();
+        // 触发 token 过期回调
+        if (onTokenExpiredCallback) {
+          onTokenExpiredCallback();
+        }
         throw new Error('登录已过期，请重新登录');
       }
     }
     
     if (response.status === 401) {
       clearAllTokens();
+      // 触发 token 过期回调
+      if (onTokenExpiredCallback) {
+        onTokenExpiredCallback();
+      }
       throw new Error('登录已过期，请重新登录');
     }
     
