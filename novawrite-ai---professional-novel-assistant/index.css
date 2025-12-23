@@ -78,3 +78,24 @@ html {
   }
 }
 
+/* 触摸操作优化 */
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 移动端侧边栏优化 */
+@media (max-width: 1023px) {
+  /* 确保移动端侧边栏在最上层 */
+  aside[class*="fixed"] {
+    will-change: transform;
+  }
+  
+  /* 移动端主内容区域不能滚动（由内部内容滚动） */
+  main {
+    overflow: hidden;
+    height: 100vh;
+    height: 100dvh; /* 动态视口高度 */
+  }
+}
+

@@ -28,8 +28,8 @@ const MobileNav: React.FC<MobileNavProps> = ({ activeView, setActiveView }) => {
   ];
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 safe-area-inset-bottom">
-      <div className="flex justify-around items-center h-16">
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-30 safe-area-inset-bottom shadow-lg">
+      <div className="flex justify-around items-center h-16 px-2">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeView === item.id;

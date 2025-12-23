@@ -317,6 +317,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
+      {/* 侧边栏 - 桌面端固定显示，移动端通过抽屉控制 */}
       <Sidebar 
         activeView={activeView} 
         setActiveView={setActiveView} 
@@ -324,7 +325,7 @@ const App: React.FC = () => {
         isMobileOpen={isMobileSidebarOpen}
         onMobileClose={() => setIsMobileSidebarOpen(false)}
       />
-      <main className="flex-1 flex flex-col min-w-0 relative lg:ml-0">
+      <main className="flex-1 flex flex-col min-w-0 relative lg:ml-0 overflow-hidden">
         {loading && (
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-4 flex items-center gap-3">
@@ -417,7 +418,7 @@ const App: React.FC = () => {
             </div>
           </div>
         </header>
-        <div className="flex-1 overflow-auto pb-16 lg:pb-0">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 overscroll-contain">
           {renderView()}
         </div>
       </main>

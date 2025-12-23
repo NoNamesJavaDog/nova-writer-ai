@@ -60,32 +60,43 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {/* 移动端遮罩层 */}
+      {/* 移动端遮罩层 - 只有在移动端打开时才显示 */}
       {isMobileOpen && (
         <div 
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity"
-          onClick={onMobileClose}
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-[45] transition-opacity"
+          onClick={(e) => {
+            e.preventDefault();
+            onMobileClose?.();
+          }}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            onMobileClose?.();
+          }}
           aria-hidden="true"
         />
       )}
       
       {/* 侧边栏 */}
-      <div className={`
+      <aside className={`
         fixed lg:static
         top-0 left-0 bottom-0
-        w-64 bg-slate-900 text-slate-400 flex flex-col shrink-0 z-50
+        w-64 bg-slate-900 text-slate-400 flex flex-col shrink-0
         transform transition-transform duration-300 ease-in-out
-        ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        ${isMobileOpen ? 'translate-x-0 z-50' : '-translate-x-full lg:translate-x-0 z-50'}
       `}>
         {/* 移动端关闭按钮 */}
-        <div className="lg:hidden flex items-center justify-between p-4 border-b border-slate-800">
+        <div className="lg:hidden flex items-center justify-between p-4 border-b border-slate-800 sticky top-0 bg-slate-900 z-10">
           <div className="flex items-center gap-2 text-white">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-xl">N</div>
             <h1 className="text-lg font-bold tracking-tight">NovaWrite</h1>
           </div>
           <button
             onClick={onMobileClose}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              onMobileClose?.();
+            }}
+            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 active:bg-slate-700 rounded-lg transition-colors touch-manipulation"
             aria-label="关闭菜单"
           >
             <X size={20} />
@@ -105,7 +116,11 @@ const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => handleNavClick(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              onTouchEnd={(e) => {
+                // 移动端触摸后立即关闭
+                handleNavClick(item.id);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors touch-manipulation ${
                 activeView === item.id 
                   ? 'bg-slate-800 text-white shadow-sm' 
                   : 'hover:bg-slate-800 hover:text-slate-200 active:bg-slate-800'
