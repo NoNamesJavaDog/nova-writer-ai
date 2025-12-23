@@ -41,19 +41,24 @@ const App: React.FC = () => {
   const [novels, setNovels] = useState<Novel[]>([]);
   const [currentNovelId, setCurrentNovelId] = useState<string>('');
 
-  // 从localStorage恢复视图状态
-  const [activeView, setActiveView] = useState<AppView>(() => {
+  // 从localStorage恢复视图状态（使用函数来获取，确保每次都能读取最新值）
+  const getStoredView = (): AppView => {
     const saved = localStorage.getItem('nova_write_active_view');
     return (saved as AppView) || 'dashboard';
-  });
-  const [activeVolumeIdx, setActiveVolumeIdx] = useState(() => {
+  };
+  const [activeView, setActiveView] = useState<AppView>(getStoredView);
+  
+  const getStoredVolumeIdx = (): number => {
     const saved = localStorage.getItem('nova_write_active_volume_idx');
     return saved ? parseInt(saved, 10) : 0;
-  });
-  const [activeChapterIdx, setActiveChapterIdx] = useState<number | null>(() => {
+  };
+  const [activeVolumeIdx, setActiveVolumeIdx] = useState(getStoredVolumeIdx);
+  
+  const getStoredChapterIdx = (): number | null => {
     const saved = localStorage.getItem('nova_write_active_chapter_idx');
     return saved ? parseInt(saved, 10) : null;
-  });
+  };
+  const [activeChapterIdx, setActiveChapterIdx] = useState<number | null>(getStoredChapterIdx);
   const [showNovelManager, setShowNovelManager] = useState(false);
   
   // 移动端侧边栏状态
@@ -162,6 +167,26 @@ const App: React.FC = () => {
     isMountedRef.current = true;
     
     if (currentUser) {
+      // 恢复视图状态（在数据加载前恢复，避免被重置）
+      const savedView = localStorage.getItem('nova_write_active_view');
+      if (savedView && savedView !== activeView) {
+        setActiveView(savedView as AppView);
+      }
+      const savedVolumeIdx = localStorage.getItem('nova_write_active_volume_idx');
+      if (savedVolumeIdx) {
+        const volumeIdx = parseInt(savedVolumeIdx, 10);
+        if (volumeIdx !== activeVolumeIdx) {
+          setActiveVolumeIdx(volumeIdx);
+        }
+      }
+      const savedChapterIdx = localStorage.getItem('nova_write_active_chapter_idx');
+      if (savedChapterIdx) {
+        const chapterIdx = parseInt(savedChapterIdx, 10);
+        if (chapterIdx !== activeChapterIdx) {
+          setActiveChapterIdx(chapterIdx);
+        }
+      }
+      
       loadNovels();
     } else {
       setNovels([]);
@@ -173,6 +198,25 @@ const App: React.FC = () => {
       isMountedRef.current = false;
     };
   }, [currentUser]);
+
+  // 保存activeView到localStorage
+  useEffect(() => {
+    localStorage.setItem('nova_write_active_view', activeView);
+  }, [activeView]);
+
+  // 保存activeVolumeIdx到localStorage
+  useEffect(() => {
+    localStorage.setItem('nova_write_active_volume_idx', activeVolumeIdx.toString());
+  }, [activeVolumeIdx]);
+
+  // 保存activeChapterIdx到localStorage
+  useEffect(() => {
+    if (activeChapterIdx !== null) {
+      localStorage.setItem('nova_write_active_chapter_idx', activeChapterIdx.toString());
+    } else {
+      localStorage.removeItem('nova_write_active_chapter_idx');
+    }
+  }, [activeChapterIdx]);
 
   // 更新当前作品（异步保存到API）
   const updateNovel = async (updates: Partial<Novel>) => {
@@ -237,10 +281,11 @@ const App: React.FC = () => {
       setCurrentNovelId(novelId);
       await currentNovelApi.set(novelId);
       setShowNovelManager(false);
-      setActiveView('dashboard');
-      // 重置卷和章节索引
-      setActiveVolumeIdx(0);
-      setActiveChapterIdx(null);
+      // 不再强制跳转到dashboard，保持当前视图
+      // setActiveView('dashboard');
+      // 保持当前的卷和章节索引，不重置
+      // setActiveVolumeIdx(0);
+      // setActiveChapterIdx(null);
     } catch (error: any) {
       console.error('设置当前小说失败:', error);
     }
