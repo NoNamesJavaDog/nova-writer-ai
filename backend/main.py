@@ -895,9 +895,16 @@ async def update_world_setting(
     if not world_setting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="世界观设定不存在")
     
+    # 允许的分类值（与数据库约束保持一致）
+    valid_categories = ['地理', '社会', '魔法/科技', '历史', '其他']
+    category = world_setting_data.category
+    if category not in valid_categories:
+        # 如果分类不在有效列表中，默认使用"其他"
+        category = '其他'
+    
     world_setting.title = world_setting_data.title
     world_setting.description = world_setting_data.description
-    world_setting.category = world_setting_data.category
+    world_setting.category = category
     world_setting.updated_at = int(time.time() * 1000)
     
     db.commit()
