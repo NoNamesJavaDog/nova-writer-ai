@@ -14,7 +14,7 @@ import NovelManager from './components/NovelManager';
 import Login from './components/Login';
 import UserSettings from './components/UserSettings';
 import { getCurrentUser, logout, refreshCurrentUser } from './services/authService';
-import { novelApi, currentNovelApi } from './services/apiService';
+import { novelApi, currentNovelApi, setOnTokenExpired } from './services/apiService';
 import { BookText, PenTool, Users, Globe, History, LayoutDashboard, BookOpen, ChevronDown, User as UserIcon, LogOut, Settings, Menu } from 'lucide-react';
 
 const INITIAL_NOVEL: Novel = {
