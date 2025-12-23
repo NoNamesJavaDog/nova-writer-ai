@@ -1854,11 +1854,17 @@ async def api_modify_outline_by_dialogue(
         if not novel:
             raise HTTPException(status_code=404, detail="小说不存在")
         
-        # 准备数据（在会话内显式加载relationship，避免延迟加载问题）
+        # 准备数据（在会话内显式加载relationship和所有属性，避免延迟加载问题）
         # 使用eager loading或者在会话关闭前访问所有需要的属性
         characters_list = list(novel.characters) if novel.characters else []
         world_settings_list = list(novel.world_settings) if novel.world_settings else []
         timeline_events_list = list(novel.timeline_events) if novel.timeline_events else []
+        
+        # 在session关闭前提取所有需要的数据到普通变量，避免在后台线程中访问novel对象
+        novel_title = novel.title
+        novel_genre = novel.genre
+        novel_synopsis = novel.synopsis or ""
+        novel_full_outline = novel.full_outline or ""
         
         characters_data = [{
             "name": c.name,
@@ -1884,10 +1890,10 @@ async def api_modify_outline_by_dialogue(
         # 创建任务
         task_data = {
             "user_message": request.user_message,
-            "title": novel.title,
-            "genre": novel.genre,
-            "synopsis": novel.synopsis or "",
-            "current_outline": novel.full_outline or ""
+            "title": novel_title,
+            "genre": novel_genre,
+            "synopsis": novel_synopsis,
+            "current_outline": novel_full_outline
         }
         
         task = create_task(
@@ -1898,15 +1904,15 @@ async def api_modify_outline_by_dialogue(
             task_data=task_data
         )
         
-        # 定义任务执行函数
+        # 定义任务执行函数（使用提取的值而不是novel对象）
         def task_function():
             from task_service import ProgressCallback
             progress_callback = ProgressCallback(task.id)
             return modify_outline_by_dialogue(
-                title=novel.title,
-                genre=novel.genre,
-                synopsis=novel.synopsis or "",
-                current_outline=novel.full_outline or "",
+                title=novel_title,
+                genre=novel_genre,
+                synopsis=novel_synopsis,
+                current_outline=novel_full_outline,
                 characters=characters_data,
                 world_settings=world_settings_data,
                 timeline=timeline_data,

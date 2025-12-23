@@ -162,31 +162,33 @@ const App: React.FC = () => {
     }
   };
 
+  // 组件挂载时，从localStorage恢复视图状态（只执行一次）
+  useEffect(() => {
+    const savedView = localStorage.getItem('nova_write_active_view');
+    if (savedView && savedView !== activeView) {
+      setActiveView(savedView as AppView);
+    }
+    const savedVolumeIdx = localStorage.getItem('nova_write_active_volume_idx');
+    if (savedVolumeIdx) {
+      const volumeIdx = parseInt(savedVolumeIdx, 10);
+      if (!isNaN(volumeIdx) && volumeIdx !== activeVolumeIdx) {
+        setActiveVolumeIdx(volumeIdx);
+      }
+    }
+    const savedChapterIdx = localStorage.getItem('nova_write_active_chapter_idx');
+    if (savedChapterIdx) {
+      const chapterIdx = parseInt(savedChapterIdx, 10);
+      if (!isNaN(chapterIdx) && chapterIdx !== activeChapterIdx) {
+        setActiveChapterIdx(chapterIdx);
+      }
+    }
+  }, []); // 只在组件挂载时执行一次
+
   // 当用户切换时，重新加载数据
   useEffect(() => {
     isMountedRef.current = true;
     
     if (currentUser) {
-      // 恢复视图状态（在数据加载前恢复，避免被重置）
-      const savedView = localStorage.getItem('nova_write_active_view');
-      if (savedView && savedView !== activeView) {
-        setActiveView(savedView as AppView);
-      }
-      const savedVolumeIdx = localStorage.getItem('nova_write_active_volume_idx');
-      if (savedVolumeIdx) {
-        const volumeIdx = parseInt(savedVolumeIdx, 10);
-        if (volumeIdx !== activeVolumeIdx) {
-          setActiveVolumeIdx(volumeIdx);
-        }
-      }
-      const savedChapterIdx = localStorage.getItem('nova_write_active_chapter_idx');
-      if (savedChapterIdx) {
-        const chapterIdx = parseInt(savedChapterIdx, 10);
-        if (chapterIdx !== activeChapterIdx) {
-          setActiveChapterIdx(chapterIdx);
-        }
-      }
-      
       loadNovels();
     } else {
       setNovels([]);
