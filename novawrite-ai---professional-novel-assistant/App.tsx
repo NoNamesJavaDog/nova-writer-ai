@@ -163,22 +163,30 @@ const App: React.FC = () => {
   };
 
   // 组件挂载时，从localStorage恢复视图状态（只执行一次）
+  // 注意：由于useState初始化时已经读取了localStorage，这里主要是为了确保状态同步
   useEffect(() => {
-    const savedView = localStorage.getItem('nova_write_active_view');
+    // 强制从localStorage读取并应用（覆盖可能的默认值）
+    const savedView = localStorage.getItem('nova_write_active_view') as AppView;
+    console.log('🔍 恢复视图状态 - localStorage中的值:', savedView, '当前activeView:', activeView);
     if (savedView && savedView !== activeView) {
-      setActiveView(savedView as AppView);
+      console.log('✅ 设置activeView为:', savedView);
+      setActiveView(savedView);
+    } else if (!savedView) {
+      console.log('⚠️ localStorage中没有保存的视图，使用默认值dashboard');
+    } else {
+      console.log('ℹ️ activeView已经是正确的值:', activeView);
     }
     const savedVolumeIdx = localStorage.getItem('nova_write_active_volume_idx');
     if (savedVolumeIdx) {
       const volumeIdx = parseInt(savedVolumeIdx, 10);
-      if (!isNaN(volumeIdx) && volumeIdx !== activeVolumeIdx) {
+      if (!isNaN(volumeIdx)) {
         setActiveVolumeIdx(volumeIdx);
       }
     }
     const savedChapterIdx = localStorage.getItem('nova_write_active_chapter_idx');
     if (savedChapterIdx) {
       const chapterIdx = parseInt(savedChapterIdx, 10);
-      if (!isNaN(chapterIdx) && chapterIdx !== activeChapterIdx) {
+      if (!isNaN(chapterIdx)) {
         setActiveChapterIdx(chapterIdx);
       }
     }
@@ -224,16 +232,22 @@ const App: React.FC = () => {
   const updateNovel = async (updates: Partial<Novel>) => {
     if (!currentNovelId || !isMountedRef.current) return;
     
-    // 先更新本地状态（乐观更新）
-    setNovels(prev => prev.map(n => 
-      n.id === currentNovelId ? { ...n, ...updates } : n
-    ));
+    // 使用函数式更新来获取最新的状态并构建更新的小说数据
+    let updatedNovel: Novel | null = null;
+    setNovels(prev => {
+      const currentNovel = prev.find(n => n.id === currentNovelId);
+      if (currentNovel) {
+        updatedNovel = { ...currentNovel, ...updates };
+        return prev.map(n => 
+          n.id === currentNovelId ? updatedNovel! : n
+        );
+      }
+      return prev;
+    });
     
     // 异步保存到API
-    try {
-      const currentNovelData = novels.find(n => n.id === currentNovelId);
-      if (currentNovelData && isMountedRef.current) {
-        const updatedNovel = { ...currentNovelData, ...updates };
+    if (updatedNovel && isMountedRef.current) {
+      try {
         // 使用syncFull来完整同步小说数据
         const savedNovel = await novelApi.syncFull(updatedNovel);
         
@@ -244,12 +258,12 @@ const App: React.FC = () => {
             n.id === currentNovelId ? savedNovel : n
           ));
         }
-      }
-    } catch (error: any) {
-      // 只有在组件仍然挂载时才记录错误
-      if (isMountedRef.current) {
-        console.error('保存小说失败:', error);
-        // 如果保存失败，可以显示错误提示，但不回滚本地状态（保持乐观更新）
+      } catch (error: any) {
+        // 只有在组件仍然挂载时才记录错误
+        if (isMountedRef.current) {
+          console.error('保存小说失败:', error);
+          // 如果保存失败，可以显示错误提示，但不回滚本地状态（保持乐观更新）
+        }
       }
     }
   };
