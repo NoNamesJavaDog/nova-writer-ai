@@ -469,8 +469,9 @@ export const novelApi = {
           });
           
           // 批量创建章节
-          if (volume.chapters.length > 0) {
-            await chapterApi.createBatch(newVolume.id, volume.chapters.map(ch => ({
+          const volumeChaptersForNew = volume.chapters || [];
+          if (volumeChaptersForNew.length > 0) {
+            await chapterApi.createBatch(newVolume.id, volumeChaptersForNew.map(ch => ({
               title: ch.title,
               summary: ch.summary,
               content: ch.content,
