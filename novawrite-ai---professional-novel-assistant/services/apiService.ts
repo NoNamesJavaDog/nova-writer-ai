@@ -473,6 +473,19 @@ export const novelApi = {
         }
       }
       
+      // 删除不在前端列表中的卷（包括其所有章节）
+      for (const existingVolume of existingVolumes) {
+        if (!novel.volumes.some(v => v.id === existingVolume.id)) {
+          // 先删除卷下的所有章节
+          const volumeChapters = await chapterApi.getAll(existingVolume.id);
+          for (const chapter of volumeChapters) {
+            await chapterApi.delete(existingVolume.id, chapter.id);
+          }
+          // 然后删除卷
+          await volumeApi.delete(novel.id, existingVolume.id);
+        }
+      }
+      
       // 3. 同步角色
       const existingCharacters = await characterApi.getAll(novel.id);
       const novelCharacterIds = new Set(novel.characters.map(c => c.id));
