@@ -453,6 +453,12 @@ export const novelApi = {
               await chapterApi.delete(volume.id, existingChapter.id);
             }
           }
+          
+          // 重新排序章节：按照前端传入的顺序
+          if (volume.chapters.length > 0) {
+            const chapterIds = volume.chapters.map(ch => ch.id);
+            await chapterApi.reorder(volume.id, chapterIds);
+          }
         } else {
           // 创建新卷
           const newVolume = await volumeApi.create(novel.id, {
@@ -730,6 +736,13 @@ export const chapterApi = {
   delete: async (volumeId: string, chapterId: string): Promise<void> => {
     await apiRequest(`/api/volumes/${volumeId}/chapters/${chapterId}`, {
       method: 'DELETE',
+    });
+  },
+  
+  reorder: async (volumeId: string, chapterIds: string[]): Promise<void> => {
+    await apiRequest(`/api/volumes/${volumeId}/chapters/reorder`, {
+      method: 'POST',
+      body: JSON.stringify(chapterIds),
     });
   },
 };

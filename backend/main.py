@@ -557,7 +557,7 @@ async def create_chapters(
     if not volume:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="卷不存在")
     
-    # 获取当前最大order
+    # 追加模式：从现有最大order+1开始
     max_order = db.query(Chapter.chapter_order).filter(Chapter.volume_id == volume_id).order_by(Chapter.chapter_order.desc()).first()
     next_order = (max_order[0] + 1) if max_order else 0
     
@@ -623,6 +623,35 @@ async def update_chapter(
     db.refresh(chapter)
     
     return chapter
+
+
+@app.post("/api/volumes/{volume_id}/chapters/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reorder_chapters(
+    volume_id: str,
+    chapter_ids: List[str],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """重新排序章节（按照传入的chapter_ids顺序）"""
+    volume = db.query(Volume).join(Novel).filter(
+        Volume.id == volume_id,
+        Novel.user_id == current_user.id
+    ).first()
+    
+    if not volume:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="卷不存在")
+    
+    # 获取所有章节
+    chapters = db.query(Chapter).filter(Chapter.volume_id == volume_id).all()
+    chapter_dict = {ch.id: ch for ch in chapters}
+    
+    # 按照传入的顺序更新order
+    for idx, chapter_id in enumerate(chapter_ids):
+        if chapter_id in chapter_dict:
+            chapter_dict[chapter_id].chapter_order = idx
+            chapter_dict[chapter_id].updated_at = int(time.time() * 1000)
+    
+    db.commit()
 
 
 @app.delete("/api/volumes/{volume_id}/chapters/{chapter_id}", status_code=status.HTTP_204_NO_CONTENT)
