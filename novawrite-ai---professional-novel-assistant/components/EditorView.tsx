@@ -100,67 +100,23 @@ const EditorView: React.FC<EditorViewProps> = ({
     }
   }, [showMobileChapterMenu]);
 
-  // 使用原生DOM事件确保按钮可点击 - 使用MutationObserver等待按钮渲染
+  // 使用原生DOM事件确保按钮可点击
   useEffect(() => {
-    console.log('🔍 useEffect执行，开始查找按钮');
-    const findAndSetupButton = () => {
-      const btn = document.getElementById('mobile-chapter-select-btn');
-      if (btn) {
-        console.log('✅ 找到按钮元素，添加原生事件监听器');
-        const handleClick = (e: Event) => {
-          e.preventDefault();
-          e.stopPropagation();
-          console.log('✅✅✅ 原生click事件触发！');
-          setShowMobileChapterMenu(prev => !prev);
-        };
-        const handleTouch = (e: Event) => {
-          e.preventDefault();
-          e.stopPropagation();
-          console.log('✅✅✅ 原生touch事件触发！');
-          setShowMobileChapterMenu(prev => !prev);
-        };
-        btn.addEventListener('click', handleClick, true); // 使用capture阶段
-        btn.addEventListener('touchend', handleTouch, true);
-        return () => {
-          btn.removeEventListener('click', handleClick, true);
-          btn.removeEventListener('touchend', handleTouch, true);
-        };
-      } else {
-        console.log('❌ 未找到按钮元素，1秒后重试');
-        return null;
-      }
-    };
-    
-    // 立即尝试
-    let cleanup = findAndSetupButton();
-    
-    // 如果没找到，使用MutationObserver监听DOM变化
-    if (!cleanup) {
-      const observer = new MutationObserver(() => {
-        cleanup = findAndSetupButton();
-        if (cleanup) {
-          observer.disconnect();
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-      
-      // 也设置一个超时重试
-      const timeout = setTimeout(() => {
-        cleanup = findAndSetupButton();
-        if (cleanup) {
-          observer.disconnect();
-        }
-      }, 1000);
-      
+    const btn = document.getElementById('mobile-chapter-select-btn');
+    if (btn) {
+      const handleClick = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowMobileChapterMenu(prev => !prev);
+      };
+      btn.addEventListener('click', handleClick, true);
+      btn.addEventListener('touchend', handleClick, true);
       return () => {
-        observer.disconnect();
-        clearTimeout(timeout);
-        if (cleanup) cleanup();
+        btn.removeEventListener('click', handleClick, true);
+        btn.removeEventListener('touchend', handleClick, true);
       };
     }
-    
-    return cleanup;
-  }, []);
+  }, [currentChapter, activeChapterIdx]); // 当章节变化时重新绑定
 
   const chapters = novel.volumes[activeVolumeIdx]?.chapters || [];
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;
