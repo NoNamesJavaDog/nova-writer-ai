@@ -717,9 +717,16 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
       </div>
 
       {/* Editor Area */}
-      <div className="flex-1 flex flex-col bg-white min-w-0">
-        {/* 移动端章节选择器 - 移到条件外，始终显示 */}
-        <div className="lg:hidden fixed top-14 left-0 right-0 px-4 py-2 bg-white border-b z-[200]" style={{ position: 'fixed', zIndex: 200 }}>
+      <div className="flex-1 flex flex-col bg-white min-w-0 relative">
+        {/* 移动端章节选择器 - 使用绝对定位，在编辑器区域内 */}
+        <div 
+          className="lg:hidden absolute top-0 left-0 right-0 px-4 py-2 bg-white border-b z-[200]" 
+          style={{ 
+            position: 'absolute', 
+            zIndex: 200,
+            top: 0
+          }}
+        >
           <button
             type="button"
             id="mobile-chapter-select-btn"
@@ -755,9 +762,10 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               touchAction: 'manipulation',
               pointerEvents: 'auto',
               backgroundColor: '#f1f5f9',
-              width: '100%'
+              width: '100%',
+              minHeight: '32px'
             }}
-            className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] justify-between touch-manipulation cursor-pointer"
+            className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 justify-between touch-manipulation cursor-pointer"
           >
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <List size={16} />
@@ -771,7 +779,7 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
         
         {currentChapter ? (
           <>
-            <div className="h-14 border-b px-4 md:px-6 flex items-center justify-between shrink-0 mt-12 lg:mt-0" style={{ position: 'relative', zIndex: 100 }}>
+            <div className="h-14 border-b px-4 md:px-6 flex items-center justify-between shrink-0 pt-12 lg:pt-0" style={{ position: 'relative', zIndex: 100 }}>
               <div className="flex flex-col flex-1 min-w-0" style={{ position: 'relative', zIndex: 101 }}>
                 {/* 桌面端章节标题输入 */}
                 <input
