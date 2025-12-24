@@ -788,8 +788,7 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
             position: 'absolute', 
             zIndex: 99999,
             top: 0,
-            pointerEvents: 'auto',
-            backgroundColor: 'yellow' // 临时设置为黄色以便调试
+            pointerEvents: 'auto'
           }}
         >
           <button
@@ -845,13 +844,12 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               WebkitTapHighlightColor: 'rgba(0,0,0,0.1)',
               touchAction: 'manipulation',
               pointerEvents: 'auto',
-              backgroundColor: 'red',
               width: '100%',
               minHeight: '40px',
               zIndex: 9999,
               position: 'relative'
             }}
-            className="flex items-center gap-2 px-2 py-1 bg-red-500 active:bg-red-600 rounded text-sm font-bold text-white justify-between touch-manipulation cursor-pointer"
+            className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 justify-between touch-manipulation cursor-pointer"
             data-test="mobile-chapter-btn"
           >
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -862,35 +860,12 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
             </div>
             <ChevronDown size={16} className={`transition-transform ${showMobileChapterMenu ? 'rotate-180' : ''}`} />
           </button>
-          {/* 测试按钮 - 更明显的红色 */}
-          <button
-            type="button"
-            id="test-btn-debug"
-            onClick={() => {
-              alert('测试按钮被点击了！');
-              console.log('测试按钮onClick');
-            }}
-            style={{
-              position: 'absolute',
-              top: '50px',
-              left: '10px',
-              width: '100px',
-              height: '50px',
-              backgroundColor: 'red',
-              color: 'white',
-              fontSize: '14px',
-              zIndex: 9999,
-              border: '2px solid yellow'
-            }}
-          >
-            测试按钮
-          </button>
         </div>
         
         {currentChapter ? (
           <>
-            <div className="h-14 border-b px-4 md:px-6 flex items-center justify-between shrink-0 pt-12 lg:pt-0" style={{ position: 'relative', zIndex: 100 }}>
-              <div className="flex flex-col flex-1 min-w-0" style={{ position: 'relative', zIndex: 101 }}>
+            <div className="min-h-[56px] border-b px-4 md:px-6 flex flex-col lg:flex-row lg:items-center justify-between shrink-0 pt-12 lg:pt-0 gap-2 lg:gap-0" style={{ position: 'relative', zIndex: 100 }}>
+              <div className="flex flex-col flex-1 min-w-0 lg:min-h-[56px] lg:justify-center" style={{ position: 'relative', zIndex: 101 }}>
                 {/* 桌面端章节标题输入 */}
                 <input
                   type="text"
@@ -1062,11 +1037,11 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap">
                 <button 
                   onClick={handleCopyChapter}
                   disabled={!currentChapter.content}
-                  className="px-3 md:px-4 py-1.5 bg-slate-600 text-white text-xs font-bold rounded-lg hover:bg-slate-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  className="px-3 md:px-4 py-2 bg-slate-600 text-white text-xs font-bold rounded-lg hover:bg-slate-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                   title="复制本章内容到剪贴板"
                 >
                   <Copy size={14} />
@@ -1075,7 +1050,7 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                 <button 
                   onClick={handleDraftWithAI}
                   disabled={isWriting}
-                  className="px-3 md:px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-200 transition-colors flex items-center gap-2"
+                  className="px-3 md:px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-200 transition-colors flex items-center gap-1.5"
                 >
                   {isWriting ? <RefreshCcw size={14} className="animate-spin" /> : <Sparkles size={14} />}
                   <span className="hidden sm:inline">{currentChapter.content ? "重新生成草稿" : "AI 生成草稿"}</span>
@@ -1085,7 +1060,7 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                   <button 
                     onClick={handleGenerateNextChapter}
                     disabled={isWriting || !currentChapter.content}
-                    className="px-3 md:px-4 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    className="px-3 md:px-4 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                     title={!currentChapter.content ? "请先完成或生成当前章节" : "生成下一章节内容"}
                   >
                     {isWriting ? <RefreshCcw size={14} className="animate-spin" /> : <ArrowRight size={14} />}
