@@ -781,12 +781,15 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
       {/* Editor Area */}
       <div className="flex-1 flex flex-col bg-white min-w-0 relative">
         {/* 移动端章节选择器 - 使用绝对定位，在编辑器区域内 */}
+        {console.log('🔍 渲染移动端章节选择器，lg:hidden应该隐藏桌面端')}
         <div 
-          className="lg:hidden absolute top-0 left-0 right-0 px-4 py-2 bg-white border-b z-[200]" 
+          className="lg:hidden absolute top-0 left-0 right-0 px-4 py-2 bg-white border-b" 
           style={{ 
             position: 'absolute', 
-            zIndex: 200,
-            top: 0
+            zIndex: 99999,
+            top: 0,
+            pointerEvents: 'auto',
+            backgroundColor: 'yellow' // 临时设置为黄色以便调试
           }}
         >
           <button
