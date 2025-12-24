@@ -110,7 +110,12 @@ const EditorView: React.FC<EditorViewProps> = ({
       if (btn && (target === btn || btn.contains(target))) {
         e.preventDefault();
         e.stopPropagation();
-        setShowMobileChapterMenu(prev => !prev);
+        console.log('✅ 全局事件委托捕获到按钮点击');
+        setShowMobileChapterMenu(prev => {
+          const newState = !prev;
+          console.log('✅ 设置菜单状态为:', newState);
+          return newState;
+        });
       }
     };
     
@@ -755,14 +760,32 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
             type="button"
             id="mobile-chapter-select-btn"
             onClick={(e) => {
+              console.log('✅ React onClick触发');
               e.stopPropagation();
               e.preventDefault();
-              setShowMobileChapterMenu(prev => !prev);
+              setShowMobileChapterMenu(prev => {
+                const newState = !prev;
+                console.log('✅ 设置菜单状态为:', newState);
+                return newState;
+              });
             }}
             onTouchEnd={(e) => {
+              console.log('✅ React onTouchEnd触发');
               e.stopPropagation();
               e.preventDefault();
-              setShowMobileChapterMenu(prev => !prev);
+              setShowMobileChapterMenu(prev => {
+                const newState = !prev;
+                console.log('✅ 设置菜单状态为:', newState);
+                return newState;
+              });
+            }}
+            onMouseDown={(e) => {
+              console.log('✅ onMouseDown触发');
+              e.stopPropagation();
+            }}
+            onTouchStart={(e) => {
+              console.log('✅ onTouchStart触发');
+              e.stopPropagation();
             }}
             style={{ 
               WebkitTapHighlightColor: 'rgba(0,0,0,0.1)',
