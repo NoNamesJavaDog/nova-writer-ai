@@ -774,54 +774,13 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
             <div className="h-14 border-b px-4 md:px-6 flex items-center justify-between shrink-0 mt-12 lg:mt-0" style={{ position: 'relative', zIndex: 100 }}>
               <div className="flex flex-col flex-1 min-w-0" style={{ position: 'relative', zIndex: 101 }}>
                 {/* 桌面端章节标题输入 */}
-                    type="button"
-                    id="mobile-chapter-select-btn"
-                    onClick={(e) => {
-                      console.log('✅ 打开菜单按钮onClick触发！');
-                      e.stopPropagation();
-                      setShowMobileChapterMenu(prev => {
-                        const newState = !prev;
-                        console.log('✅ 设置菜单状态为:', newState);
-                        return newState;
-                      });
-                    }}
-                    onMouseDown={(e) => {
-                      console.log('✅ 按钮onMouseDown触发！');
-                      e.stopPropagation();
-                    }}
-                    onTouchStart={(e) => {
-                      console.log('✅ 按钮onTouchStart触发！');
-                      e.stopPropagation();
-                    }}
-                    onTouchEnd={(e) => {
-                      console.log('✅ 打开菜单按钮onTouchEnd触发！');
-                      e.stopPropagation();
-                      e.preventDefault();
-                      setShowMobileChapterMenu(prev => {
-                        const newState = !prev;
-                        console.log('✅ 设置菜单状态为:', newState);
-                        return newState;
-                      });
-                    }}
-                    style={{ 
-                      WebkitTapHighlightColor: 'rgba(0,0,0,0.1)',
-                      touchAction: 'manipulation',
-                      pointerEvents: 'auto',
-                      position: 'relative',
-                      zIndex: 103,
-                      backgroundColor: '#f1f5f9'
-                    }}
-                    className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] w-full justify-between touch-manipulation cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <List size={16} />
-                      <span className="truncate">
-                        {activeChapterIdx !== null ? `${activeChapterIdx + 1}. ${currentChapter.title}` : '选择章节'}
-                      </span>
-                    </div>
-                    <ChevronDown size={16} className={`transition-transform ${showMobileChapterMenu ? 'rotate-180' : ''}`} />
-                  </button>
-                </div>
+                <input
+                  type="text"
+                  value={currentChapter.title}
+                  onChange={(e) => handleUpdateChapter(activeChapterIdx!, { title: e.target.value })}
+                  className="hidden lg:block text-base md:text-lg font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 px-1 -ml-1 rounded truncate w-full"
+                  placeholder="章节标题"
+                />
                 
                 {/* 移动端章节下拉菜单 - 使用 Portal 渲染到 body */}
                 {showMobileChapterMenu && typeof document !== 'undefined' && createPortal(
