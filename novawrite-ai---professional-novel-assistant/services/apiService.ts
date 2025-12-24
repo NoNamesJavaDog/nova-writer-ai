@@ -355,6 +355,13 @@ function apiToNovel(apiNovel: any): Novel {
       event: t.event,
       impact: t.impact || '',
     })),
+    foreshadowings: (apiNovel.foreshadowings || []).map((f: any) => ({
+      id: f.id,
+      content: f.content || '',
+      chapterId: f.chapter_id || undefined,
+      resolvedChapterId: f.resolved_chapter_id || undefined,
+      isResolved: f.is_resolved || 'false',
+    })),
   };
 }
 
