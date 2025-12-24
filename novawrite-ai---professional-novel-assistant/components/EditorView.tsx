@@ -100,34 +100,22 @@ const EditorView: React.FC<EditorViewProps> = ({
     }
   }, [showMobileChapterMenu]);
 
-  // 使用原生DOM事件确保按钮可点击 - 使用全局事件委托
+  // 使用原生DOM事件作为最后的备用方案
   useEffect(() => {
-    const handleGlobalClick = (e: MouseEvent | TouchEvent) => {
-      const target = e.target as HTMLElement;
-      const btn = document.getElementById('mobile-chapter-select-btn');
-      
-      // 检查点击是否在按钮或其子元素上
-      if (btn && (target === btn || btn.contains(target))) {
-        e.preventDefault();
-        e.stopPropagation();
-        console.log('✅ 全局事件委托捕获到按钮点击');
-        setShowMobileChapterMenu(prev => {
-          const newState = !prev;
-          console.log('✅ 设置菜单状态为:', newState);
-          return newState;
-        });
-      }
-    };
-    
-    // 在capture阶段监听，确保优先处理
-    document.addEventListener('click', handleGlobalClick, true);
-    document.addEventListener('touchend', handleGlobalClick, true);
-    
-    return () => {
-      document.removeEventListener('click', handleGlobalClick, true);
-      document.removeEventListener('touchend', handleGlobalClick, true);
-    };
-  }, []);
+    const btn = document.getElementById('mobile-chapter-select-btn');
+    if (btn) {
+      const handleClick = () => {
+        console.log('✅✅✅ 原生DOM点击事件触发！');
+        setShowMobileChapterMenu(prev => !prev);
+      };
+      btn.addEventListener('click', handleClick);
+      btn.addEventListener('touchend', handleClick);
+      return () => {
+        btn.removeEventListener('click', handleClick);
+        btn.removeEventListener('touchend', handleClick);
+      };
+    }
+  }, [currentChapter, activeChapterIdx]);
 
   const chapters = novel.volumes[activeVolumeIdx]?.chapters || [];
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;
