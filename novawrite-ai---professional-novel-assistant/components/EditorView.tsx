@@ -715,10 +715,19 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
             <div className="h-14 border-b px-4 md:px-6 flex items-center justify-between shrink-0">
               <div className="flex flex-col flex-1 min-w-0">
                 {/* 移动端章节选择器 */}
-                <div className="lg:hidden mb-1 relative">
+                <div className="lg:hidden mb-1 relative z-10">
                   <button
-                    onClick={() => setShowMobileChapterMenu(!showMobileChapterMenu)}
-                    className="flex items-center gap-2 px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] w-full justify-between"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowMobileChapterMenu(!showMobileChapterMenu);
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowMobileChapterMenu(!showMobileChapterMenu);
+                    }}
+                    className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] w-full justify-between touch-manipulation"
                   >
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <List size={16} />
@@ -733,12 +742,15 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                   {showMobileChapterMenu && (
                     <>
                       <div 
-                        className="fixed inset-0 z-[100] bg-black/20"
+                        className="fixed inset-0 z-[100] bg-black/30"
                         onClick={() => setShowMobileChapterMenu(false)}
+                        onTouchEnd={() => setShowMobileChapterMenu(false)}
                       />
                       <div 
-                        className="fixed top-[70px] left-4 right-4 bg-white border border-slate-200 rounded-lg shadow-xl z-[101] max-h-[60vh] overflow-y-auto"
+                        className="fixed top-[56px] left-4 right-4 bg-white border-2 border-slate-300 rounded-lg shadow-2xl z-[102] max-h-[calc(100vh-120px)] overflow-y-auto"
                         onClick={(e) => e.stopPropagation()}
+                        onTouchEnd={(e) => e.stopPropagation()}
+                        style={{ maxHeight: 'calc(100vh - 120px)' }}
                       >
                         {/* 卷选择（如果有多卷） */}
                         {novel.volumes.length > 1 && (
