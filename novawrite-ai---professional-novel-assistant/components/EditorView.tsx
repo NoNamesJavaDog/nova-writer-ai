@@ -724,29 +724,45 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               <div className="flex flex-col flex-1 min-w-0" style={{ position: 'relative', zIndex: 101 }}>
                 {/* 移动端章节选择器 */}
                 <div className="lg:hidden mb-1" style={{ position: 'relative', zIndex: 102 }}>
+                  {/* 测试：确认按钮区域 */}
+                  {console.log('渲染章节选择按钮，showMobileChapterMenu:', showMobileChapterMenu)}
                   <button
                     type="button"
+                    id="mobile-chapter-select-btn"
                     onClick={(e) => {
+                      console.log('✅ 打开菜单按钮onClick触发！');
                       e.stopPropagation();
-                      console.log('打开菜单按钮onClick触发，当前状态:', showMobileChapterMenu);
-                      setShowMobileChapterMenu(prev => !prev);
+                      setShowMobileChapterMenu(prev => {
+                        const newState = !prev;
+                        console.log('✅ 设置菜单状态为:', newState);
+                        return newState;
+                      });
+                    }}
+                    onMouseDown={(e) => {
+                      console.log('✅ 按钮onMouseDown触发！');
+                      e.stopPropagation();
                     }}
                     onTouchStart={(e) => {
+                      console.log('✅ 按钮onTouchStart触发！');
                       e.stopPropagation();
-                      console.log('按钮touchStart');
                     }}
                     onTouchEnd={(e) => {
+                      console.log('✅ 打开菜单按钮onTouchEnd触发！');
                       e.stopPropagation();
                       e.preventDefault();
-                      console.log('打开菜单按钮onTouchEnd触发，当前状态:', showMobileChapterMenu);
-                      setShowMobileChapterMenu(prev => !prev);
+                      setShowMobileChapterMenu(prev => {
+                        const newState = !prev;
+                        console.log('✅ 设置菜单状态为:', newState);
+                        return newState;
+                      });
                     }}
                     style={{ 
                       WebkitTapHighlightColor: 'rgba(0,0,0,0.1)',
                       touchAction: 'manipulation',
                       pointerEvents: 'auto',
                       position: 'relative',
-                      zIndex: 103
+                      zIndex: 103,
+                      backgroundColor: '#f1f5f9'
                     }}
                     className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] w-full justify-between touch-manipulation cursor-pointer"
                   >
