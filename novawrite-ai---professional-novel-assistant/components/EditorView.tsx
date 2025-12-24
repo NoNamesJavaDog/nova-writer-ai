@@ -720,25 +720,33 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
       <div className="flex-1 flex flex-col bg-white min-w-0">
         {currentChapter ? (
           <>
-            <div className="h-14 border-b px-4 md:px-6 flex items-center justify-between shrink-0">
-              <div className="flex flex-col flex-1 min-w-0">
+            <div className="h-14 border-b px-4 md:px-6 flex items-center justify-between shrink-0" style={{ position: 'relative', zIndex: 100 }}>
+              <div className="flex flex-col flex-1 min-w-0" style={{ position: 'relative', zIndex: 101 }}>
                 {/* 移动端章节选择器 */}
-                <div className="lg:hidden mb-1 relative z-10">
+                <div className="lg:hidden mb-1" style={{ position: 'relative', zIndex: 102 }}>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       console.log('打开菜单按钮onClick触发，当前状态:', showMobileChapterMenu);
-                      setShowMobileChapterMenu(!showMobileChapterMenu);
+                      setShowMobileChapterMenu(prev => !prev);
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      console.log('按钮touchStart');
                     }}
                     onTouchEnd={(e) => {
+                      e.stopPropagation();
                       e.preventDefault();
                       console.log('打开菜单按钮onTouchEnd触发，当前状态:', showMobileChapterMenu);
-                      setShowMobileChapterMenu(!showMobileChapterMenu);
+                      setShowMobileChapterMenu(prev => !prev);
                     }}
                     style={{ 
                       WebkitTapHighlightColor: 'rgba(0,0,0,0.1)',
                       touchAction: 'manipulation',
-                      pointerEvents: 'auto'
+                      pointerEvents: 'auto',
+                      position: 'relative',
+                      zIndex: 103
                     }}
                     className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] w-full justify-between touch-manipulation cursor-pointer"
                   >
