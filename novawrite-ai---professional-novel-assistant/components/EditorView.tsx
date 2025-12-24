@@ -736,7 +736,10 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                         className="fixed inset-0 z-[100] bg-black/20"
                         onClick={() => setShowMobileChapterMenu(false)}
                       />
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[101] max-h-[60vh] overflow-y-auto">
+                      <div 
+                        className="fixed top-[70px] left-4 right-4 bg-white border border-slate-200 rounded-lg shadow-xl z-[101] max-h-[60vh] overflow-y-auto"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {/* 卷选择（如果有多卷） */}
                         {novel.volumes.length > 1 && (
                           <div className="p-2 border-b bg-slate-50">
@@ -745,14 +748,22 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                               {novel.volumes.map((vol, volIdx) => (
                                 <button
                                   key={vol.id}
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
                                     handleSwitchVolume(volIdx);
                                     setShowMobileChapterMenu(false);
                                   }}
-                                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                                  onTouchEnd={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleSwitchVolume(volIdx);
+                                    setShowMobileChapterMenu(false);
+                                  }}
+                                  className={`px-2 py-1 text-xs rounded transition-colors touch-manipulation ${
                                     volIdx === activeVolumeIdx
                                       ? 'bg-indigo-600 text-white'
-                                      : 'bg-white text-slate-600 hover:bg-slate-100 border'
+                                      : 'bg-white text-slate-600 hover:bg-slate-100 active:bg-slate-200 border'
                                   }`}
                                 >
                                   {volIdx + 1}
@@ -797,11 +808,19 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                             ))
                           )}
                           <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
                               handleAddChapter();
                               setShowMobileChapterMenu(false);
                             }}
-                            className="w-full mt-2 px-3 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                            onTouchEnd={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleAddChapter();
+                              setShowMobileChapterMenu(false);
+                            }}
+                            className="w-full mt-2 px-3 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 active:bg-indigo-800 transition-colors flex items-center justify-center gap-2 touch-manipulation"
                           >
                             <Plus size={16} />
                             添加新章节
