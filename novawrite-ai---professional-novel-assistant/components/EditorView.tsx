@@ -100,6 +100,34 @@ const EditorView: React.FC<EditorViewProps> = ({
     }
   }, [showMobileChapterMenu]);
 
+  // 使用原生DOM事件确保按钮可点击
+  useEffect(() => {
+    const btn = document.getElementById('mobile-chapter-select-btn');
+    if (btn) {
+      console.log('✅ 找到按钮元素，添加原生事件监听器');
+      const handleClick = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('✅✅✅ 原生click事件触发！');
+        setShowMobileChapterMenu(prev => !prev);
+      };
+      const handleTouch = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('✅✅✅ 原生touch事件触发！');
+        setShowMobileChapterMenu(prev => !prev);
+      };
+      btn.addEventListener('click', handleClick);
+      btn.addEventListener('touchend', handleTouch);
+      return () => {
+        btn.removeEventListener('click', handleClick);
+        btn.removeEventListener('touchend', handleTouch);
+      };
+    } else {
+      console.log('❌ 未找到按钮元素');
+    }
+  }, []);
+
   const chapters = novel.volumes[activeVolumeIdx]?.chapters || [];
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;
   const hasNextChapter = activeChapterIdx !== null && activeChapterIdx < chapters.length - 1;
