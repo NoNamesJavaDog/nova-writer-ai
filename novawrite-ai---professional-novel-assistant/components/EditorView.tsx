@@ -727,30 +727,36 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                   <button
                     type="button"
                     onClick={(e) => {
-                      e.preventDefault();
+                      console.log('打开菜单按钮点击事件触发');
+                      setShowMobileChapterMenu(prev => {
+                        const newState = !prev;
+                        console.log('设置菜单状态为:', newState);
+                        return newState;
+                      });
+                    }}
+                    onMouseDown={(e) => {
                       e.stopPropagation();
-                      console.log('打开菜单按钮点击，当前状态:', showMobileChapterMenu);
-                      const newState = !showMobileChapterMenu;
-                      console.log('设置菜单状态为:', newState);
-                      setShowMobileChapterMenu(newState);
                     }}
                     onTouchStart={(e) => {
                       e.stopPropagation();
+                      console.log('打开菜单按钮触摸开始');
                     }}
                     onTouchEnd={(e) => {
-                      e.preventDefault();
                       e.stopPropagation();
-                      console.log('打开菜单按钮触摸，当前状态:', showMobileChapterMenu);
-                      const newState = !showMobileChapterMenu;
-                      console.log('设置菜单状态为:', newState);
-                      setShowMobileChapterMenu(newState);
+                      console.log('打开菜单按钮触摸结束');
+                      setShowMobileChapterMenu(prev => {
+                        const newState = !prev;
+                        console.log('设置菜单状态为:', newState);
+                        return newState;
+                      });
                     }}
                     style={{ 
                       WebkitTapHighlightColor: 'transparent',
                       touchAction: 'manipulation',
-                      pointerEvents: 'auto'
+                      pointerEvents: 'auto',
+                      zIndex: 1000
                     }}
-                    className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] w-full justify-between touch-manipulation cursor-pointer"
+                    className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 min-h-[32px] w-full justify-between touch-manipulation cursor-pointer relative"
                   >
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <List size={16} />
