@@ -906,9 +906,8 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                     </>,
                     document.body
                   )}
-              </div>
                 
-              {/* 桌面端章节标题输入 */}
+                {/* 桌面端章节标题输入 */}
                 <input
                   type="text"
                   value={currentChapter.title}
