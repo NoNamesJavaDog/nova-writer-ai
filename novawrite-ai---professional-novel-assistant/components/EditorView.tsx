@@ -725,14 +725,14 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                 {/* 移动端章节选择器 */}
                 <div className="lg:hidden mb-1 relative z-10">
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       console.log('打开菜单按钮点击，当前状态:', showMobileChapterMenu);
-                      setShowMobileChapterMenu(prev => {
-                        console.log('设置菜单状态为:', !prev);
-                        return !prev;
-                      });
+                      const newState = !showMobileChapterMenu;
+                      console.log('设置菜单状态为:', newState);
+                      setShowMobileChapterMenu(newState);
                     }}
                     onTouchStart={(e) => {
                       e.stopPropagation();
@@ -741,10 +741,9 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                       e.preventDefault();
                       e.stopPropagation();
                       console.log('打开菜单按钮触摸，当前状态:', showMobileChapterMenu);
-                      setShowMobileChapterMenu(prev => {
-                        console.log('设置菜单状态为:', !prev);
-                        return !prev;
-                      });
+                      const newState = !showMobileChapterMenu;
+                      console.log('设置菜单状态为:', newState);
+                      setShowMobileChapterMenu(newState);
                     }}
                     style={{ 
                       WebkitTapHighlightColor: 'transparent',
@@ -761,9 +760,10 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                     </div>
                     <ChevronDown size={16} className={`transition-transform ${showMobileChapterMenu ? 'rotate-180' : ''}`} />
                   </button>
-                  
-                  {/* 移动端章节下拉菜单 - 使用 Portal 渲染到 body */}
-                  {showMobileChapterMenu && typeof document !== 'undefined' && createPortal(
+                </div>
+                
+                {/* 移动端章节下拉菜单 - 使用 Portal 渲染到 body */}
+                {showMobileChapterMenu && typeof document !== 'undefined' && createPortal(
                     <>
                       <div 
                         className="fixed inset-0 z-[100] bg-black/40"
