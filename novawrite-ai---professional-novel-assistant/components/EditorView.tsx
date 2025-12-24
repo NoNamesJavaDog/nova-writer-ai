@@ -733,10 +733,10 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                   {showMobileChapterMenu && (
                     <>
                       <div 
-                        className="fixed inset-0 z-40 bg-black/20"
+                        className="fixed inset-0 z-[100] bg-black/20"
                         onClick={() => setShowMobileChapterMenu(false)}
                       />
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-[60vh] overflow-y-auto">
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[101] max-h-[60vh] overflow-y-auto">
                         {/* 卷选择（如果有多卷） */}
                         {novel.volumes.length > 1 && (
                           <div className="p-2 border-b bg-slate-50">
