@@ -93,6 +93,13 @@ const EditorView: React.FC<EditorViewProps> = ({
     };
   }, []);
 
+  // 调试：监听菜单状态变化
+  useEffect(() => {
+    if (showMobileChapterMenu) {
+      console.log('✅ 菜单应该显示了，showMobileChapterMenu:', showMobileChapterMenu);
+    }
+  }, [showMobileChapterMenu]);
+
   const chapters = novel.volumes[activeVolumeIdx]?.chapters || [];
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;
   const hasNextChapter = activeChapterIdx !== null && activeChapterIdx < chapters.length - 1;
