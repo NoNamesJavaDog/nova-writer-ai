@@ -100,23 +100,29 @@ const EditorView: React.FC<EditorViewProps> = ({
     }
   }, [showMobileChapterMenu]);
 
-  // 使用原生DOM事件确保按钮可点击
+  // 使用原生DOM事件确保按钮可点击 - 使用全局事件委托
   useEffect(() => {
-    const btn = document.getElementById('mobile-chapter-select-btn');
-    if (btn) {
-      const handleClick = (e: Event) => {
+    const handleGlobalClick = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      const btn = document.getElementById('mobile-chapter-select-btn');
+      
+      // 检查点击是否在按钮或其子元素上
+      if (btn && (target === btn || btn.contains(target))) {
         e.preventDefault();
         e.stopPropagation();
         setShowMobileChapterMenu(prev => !prev);
-      };
-      btn.addEventListener('click', handleClick, true);
-      btn.addEventListener('touchend', handleClick, true);
-      return () => {
-        btn.removeEventListener('click', handleClick, true);
-        btn.removeEventListener('touchend', handleClick, true);
-      };
-    }
-  }, [currentChapter, activeChapterIdx]); // 当章节变化时重新绑定
+      }
+    };
+    
+    // 在capture阶段监听，确保优先处理
+    document.addEventListener('click', handleGlobalClick, true);
+    document.addEventListener('touchend', handleGlobalClick, true);
+    
+    return () => {
+      document.removeEventListener('click', handleGlobalClick, true);
+      document.removeEventListener('touchend', handleGlobalClick, true);
+    };
+  }, []);
 
   const chapters = novel.volumes[activeVolumeIdx]?.chapters || [];
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;
@@ -736,13 +742,12 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
 
       {/* Editor Area */}
       <div className="flex-1 flex flex-col bg-white min-w-0 relative">
-        {/* 移动端章节选择器 - 使用绝对定位，在编辑器区域内 */}
+        {/* 移动端章节选择器 - 使用固定定位，确保在最上层 */}
         <div 
-          className="lg:hidden absolute top-0 left-0 right-0 px-4 py-2 bg-white border-b" 
+          className="lg:hidden fixed top-14 left-0 right-0 px-4 py-2 bg-white border-b shadow-sm" 
           style={{ 
-            position: 'absolute', 
-            zIndex: 99999,
-            top: 0,
+            position: 'fixed',
+            zIndex: 9999,
             pointerEvents: 'auto'
           }}
         >
@@ -764,11 +769,11 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               touchAction: 'manipulation',
               pointerEvents: 'auto',
               width: '100%',
-              minHeight: '40px',
-              zIndex: 9999,
-              position: 'relative'
+              minHeight: '44px',
+              cursor: 'pointer',
+              userSelect: 'none'
             }}
-            className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 justify-between touch-manipulation cursor-pointer"
+            className="flex items-center gap-2 px-3 py-2 bg-slate-100 active:bg-slate-200 rounded-lg text-sm font-semibold text-slate-700 justify-between touch-manipulation"
             data-test="mobile-chapter-btn"
           >
             <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -783,7 +788,7 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
         
         {currentChapter ? (
           <>
-            <div className="min-h-[56px] border-b px-4 md:px-6 flex flex-col lg:flex-row lg:items-center justify-between shrink-0 pt-12 lg:pt-0 gap-2 lg:gap-0" style={{ position: 'relative', zIndex: 100 }}>
+            <div className="min-h-[56px] border-b px-4 md:px-6 flex flex-col lg:flex-row lg:items-center justify-between shrink-0 pt-[60px] lg:pt-0 gap-2 lg:gap-0" style={{ position: 'relative', zIndex: 100 }}>
               <div className="flex flex-col flex-1 min-w-0 lg:min-h-[56px] lg:justify-center" style={{ position: 'relative', zIndex: 101 }}>
                 {/* 桌面端章节标题输入 */}
                 <input
