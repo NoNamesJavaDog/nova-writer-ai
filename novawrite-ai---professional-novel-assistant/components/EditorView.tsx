@@ -748,6 +748,8 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
       {/* Editor Area */}
       <div className="flex-1 flex flex-col bg-white min-w-0 relative">
         {/* 移动端章节选择器 - 使用固定定位，确保在最上层 */}
+        {/* 确保按钮始终渲染，不依赖currentChapter */}
+        {console.log('🔍 EditorView渲染，activeChapterIdx:', activeChapterIdx, 'currentChapter:', currentChapter)}
         <div 
           className="lg:hidden fixed top-14 left-0 right-0 px-4 py-2 bg-white border-b shadow-sm" 
           style={{ 
