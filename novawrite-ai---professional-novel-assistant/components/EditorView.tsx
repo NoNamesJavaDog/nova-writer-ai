@@ -792,25 +792,44 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
           <button
             type="button"
             id="mobile-chapter-select-btn"
+            ref={(el) => {
+              if (el) {
+                console.log('✅ 按钮ref回调，按钮已渲染到DOM');
+                // 直接使用内联onclick作为最后手段
+                el.onclick = (e: MouseEvent) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('✅✅✅ 内联onclick触发！');
+                  setShowMobileChapterMenu(prev => {
+                    const newState = !prev;
+                    console.log('✅ 设置菜单状态为:', newState);
+                    return newState;
+                  });
+                };
+                el.ontouchend = (e: TouchEvent) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('✅✅✅ 内联ontouchend触发！');
+                  setShowMobileChapterMenu(prev => {
+                    const newState = !prev;
+                    console.log('✅ 设置菜单状态为:', newState);
+                    return newState;
+                  });
+                };
+              }
+            }}
             onClick={(e) => {
-              console.log('✅✅✅ 打开菜单按钮onClick触发！');
+              console.log('✅✅✅ React onClick触发！');
               e.stopPropagation();
+              e.preventDefault();
               setShowMobileChapterMenu(prev => {
                 const newState = !prev;
                 console.log('✅ 设置菜单状态为:', newState);
                 return newState;
               });
             }}
-            onMouseDown={(e) => {
-              console.log('✅ 按钮onMouseDown触发！');
-              e.stopPropagation();
-            }}
-            onTouchStart={(e) => {
-              console.log('✅ 按钮onTouchStart触发！');
-              e.stopPropagation();
-            }}
             onTouchEnd={(e) => {
-              console.log('✅✅✅ 打开菜单按钮onTouchEnd触发！');
+              console.log('✅✅✅ React onTouchEnd触发！');
               e.stopPropagation();
               e.preventDefault();
               setShowMobileChapterMenu(prev => {
@@ -823,9 +842,11 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               WebkitTapHighlightColor: 'rgba(0,0,0,0.1)',
               touchAction: 'manipulation',
               pointerEvents: 'auto',
-              backgroundColor: '#f1f5f9',
+              backgroundColor: 'red',
               width: '100%',
-              minHeight: '32px'
+              minHeight: '40px',
+              zIndex: 9999,
+              position: 'relative'
             }}
             className="flex items-center gap-2 px-2 py-1 bg-red-500 active:bg-red-600 rounded text-sm font-bold text-white justify-between touch-manipulation cursor-pointer"
             data-test="mobile-chapter-btn"
