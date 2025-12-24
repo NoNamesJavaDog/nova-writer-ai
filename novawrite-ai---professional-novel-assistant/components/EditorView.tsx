@@ -1189,6 +1189,7 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
         onClear={clearLogs}
       />
     </div>
+    </>
   );
 };
 
