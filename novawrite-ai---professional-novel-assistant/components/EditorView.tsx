@@ -739,25 +739,27 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                     <ChevronDown size={16} className={`transition-transform ${showMobileChapterMenu ? 'rotate-180' : ''}`} />
                   </button>
                   
-                  {/* 移动端章节下拉菜单 */}
-                  {showMobileChapterMenu && (
+                  {/* 移动端章节下拉菜单 - 使用 Portal 渲染到 body */}
+                  {showMobileChapterMenu && typeof document !== 'undefined' && createPortal(
                     <>
                       <div 
-                        className="fixed inset-0 z-[100] bg-black/30"
+                        className="fixed inset-0 z-[100] bg-black/40"
                         onClick={() => setShowMobileChapterMenu(false)}
-                        onTouchEnd={() => setShowMobileChapterMenu(false)}
+                        onTouchEnd={(e) => {
+                          e.preventDefault();
+                          setShowMobileChapterMenu(false);
+                        }}
                       />
                       <div 
-                        className="fixed top-[56px] left-4 right-4 bg-white border-2 border-slate-300 rounded-lg shadow-2xl z-[102] max-h-[calc(100vh-120px)] overflow-y-auto"
+                        className="fixed top-[60px] left-4 right-4 bg-white border-2 border-indigo-300 rounded-xl shadow-2xl z-[102] max-h-[calc(100vh-140px)] overflow-y-auto"
                         onClick={(e) => e.stopPropagation()}
                         onTouchEnd={(e) => e.stopPropagation()}
-                        style={{ maxHeight: 'calc(100vh - 120px)' }}
                       >
                         {/* 卷选择（如果有多卷） */}
                         {novel.volumes.length > 1 && (
-                          <div className="p-2 border-b bg-slate-50">
-                            <div className="text-xs font-semibold text-slate-500 mb-1">切换卷：</div>
-                            <div className="flex flex-wrap gap-1">
+                          <div className="p-3 border-b bg-indigo-50">
+                            <div className="text-xs font-semibold text-indigo-700 mb-2">切换卷：</div>
+                            <div className="flex flex-wrap gap-2">
                               {novel.volumes.map((vol, volIdx) => (
                                 <button
                                   key={vol.id}
@@ -773,13 +775,13 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                                     handleSwitchVolume(volIdx);
                                     setShowMobileChapterMenu(false);
                                   }}
-                                  className={`px-2 py-1 text-xs rounded transition-colors touch-manipulation ${
+                                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors touch-manipulation font-medium ${
                                     volIdx === activeVolumeIdx
-                                      ? 'bg-indigo-600 text-white'
-                                      : 'bg-white text-slate-600 hover:bg-slate-100 active:bg-slate-200 border'
+                                      ? 'bg-indigo-600 text-white shadow-md'
+                                      : 'bg-white text-slate-700 hover:bg-indigo-100 active:bg-indigo-200 border border-slate-300'
                                   }`}
                                 >
-                                  {volIdx + 1}
+                                  第{volIdx + 1}卷
                                 </button>
                               ))}
                             </div>
@@ -787,7 +789,7 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                         )}
                         
                         {/* 章节列表 */}
-                        <div className="p-2">
+                        <div className="p-3">
                           {chapters.length === 0 ? (
                             <div className="text-center py-4 text-sm text-slate-400">
                               还没有章节
@@ -796,14 +798,22 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                             chapters.map((ch, idx) => (
                               <button
                                 key={ch.id}
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
                                   setActiveChapterIdx(idx);
                                   setShowMobileChapterMenu(false);
                                 }}
-                                className={`w-full text-left px-3 py-2.5 rounded-lg mb-1 transition-colors ${
+                                onTouchEnd={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setActiveChapterIdx(idx);
+                                  setShowMobileChapterMenu(false);
+                                }}
+                                className={`w-full text-left px-4 py-3 rounded-lg mb-2 transition-all touch-manipulation ${
                                   activeChapterIdx === idx
-                                    ? 'bg-indigo-50 text-indigo-700 font-semibold'
-                                    : 'bg-white hover:bg-slate-50 text-slate-700'
+                                    ? 'bg-indigo-100 border-2 border-indigo-500 text-indigo-900 font-semibold shadow-md'
+                                    : 'bg-white border border-slate-200 hover:border-indigo-300 active:bg-slate-50 text-slate-700'
                                 }`}
                               >
                                 <div className="flex items-center justify-between">
