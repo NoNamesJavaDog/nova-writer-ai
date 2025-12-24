@@ -571,8 +571,8 @@ export const novelApi = {
       
       // 6. 同步伏笔
       const existingForeshadowings = (await foreshadowingApi.getAll(novel.id)) || [];
-      const novelForeshadowings = novel.foreshadowings || [];
-      const novelForeshadowingIds = new Set(novelForeshadowings.map(f => f.id));
+      const novelForeshadowings = (novel.foreshadowings && Array.isArray(novel.foreshadowings)) ? novel.foreshadowings : [];
+      const novelForeshadowingIds = new Set(novelForeshadowings.filter(f => f && f.id).map(f => f.id));
       
       // 删除不在列表中的伏笔
       for (const existing of existingForeshadowings) {
