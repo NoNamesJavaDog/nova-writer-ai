@@ -747,68 +747,43 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
 
       {/* Editor Area */}
       <div className="flex-1 flex flex-col bg-white min-w-0 relative">
-        {/* 移动端章节选择器 - 使用固定定位，确保在最上层 */}
-        {/* 确保按钮始终渲染，不依赖currentChapter */}
-        {console.log('🔍 EditorView渲染，activeChapterIdx:', activeChapterIdx, 'currentChapter:', currentChapter)}
+        {/* 移动端章节选择器 - 使用最简单的方式 */}
         <div 
-          className="lg:hidden fixed top-14 left-0 right-0 px-4 py-2 bg-white border-b shadow-sm" 
-          style={{ 
-            position: 'fixed',
-            zIndex: 9999,
-            pointerEvents: 'auto'
-          }}
+          className="lg:hidden fixed top-14 left-0 right-0 px-4 py-2 bg-white border-b shadow-sm z-[9999]" 
         >
-          <button
-            type="button"
+          <div
             id="mobile-chapter-select-btn"
-            onClick={(e) => {
-              console.log('✅ React onClick触发');
-              e.stopPropagation();
-              e.preventDefault();
-              setShowMobileChapterMenu(prev => {
-                const newState = !prev;
-                console.log('✅ 设置菜单状态为:', newState);
-                return newState;
-              });
+            onClick={() => {
+              console.log('✅✅✅ 按钮被点击了！');
+              setShowMobileChapterMenu(prev => !prev);
             }}
             onTouchEnd={(e) => {
-              console.log('✅ React onTouchEnd触发');
-              e.stopPropagation();
               e.preventDefault();
-              setShowMobileChapterMenu(prev => {
-                const newState = !prev;
-                console.log('✅ 设置菜单状态为:', newState);
-                return newState;
-              });
-            }}
-            onMouseDown={(e) => {
-              console.log('✅ onMouseDown触发');
               e.stopPropagation();
-            }}
-            onTouchStart={(e) => {
-              console.log('✅ onTouchStart触发');
-              e.stopPropagation();
+              console.log('✅✅✅ 按钮被触摸了！');
+              setShowMobileChapterMenu(prev => !prev);
             }}
             style={{ 
-              WebkitTapHighlightColor: 'rgba(0,0,0,0.1)',
-              touchAction: 'manipulation',
-              pointerEvents: 'auto',
               width: '100%',
               minHeight: '44px',
+              padding: '12px',
+              backgroundColor: '#f1f5f9',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               cursor: 'pointer',
-              userSelect: 'none'
+              touchAction: 'manipulation'
             }}
-            className="flex items-center gap-2 px-3 py-2 bg-slate-100 active:bg-slate-200 rounded-lg text-sm font-semibold text-slate-700 justify-between touch-manipulation"
-            data-test="mobile-chapter-btn"
           >
-            <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
               <List size={16} />
-              <span className="truncate">
+              <span style={{ fontSize: '14px', fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {activeChapterIdx !== null && currentChapter ? `${activeChapterIdx + 1}. ${currentChapter.title}` : '选择章节'}
               </span>
             </div>
-            <ChevronDown size={16} className={`transition-transform ${showMobileChapterMenu ? 'rotate-180' : ''}`} />
-          </button>
+            <ChevronDown size={16} style={{ transform: showMobileChapterMenu ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+          </div>
         </div>
         
         {currentChapter ? (
