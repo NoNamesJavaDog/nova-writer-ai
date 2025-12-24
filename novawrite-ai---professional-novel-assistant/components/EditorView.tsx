@@ -827,7 +827,8 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               width: '100%',
               minHeight: '32px'
             }}
-            className="flex items-center gap-2 px-2 py-1 bg-slate-100 active:bg-slate-200 rounded text-sm font-semibold text-slate-700 justify-between touch-manipulation cursor-pointer"
+            className="flex items-center gap-2 px-2 py-1 bg-red-500 active:bg-red-600 rounded text-sm font-bold text-white justify-between touch-manipulation cursor-pointer"
+            data-test="mobile-chapter-btn"
           >
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <List size={16} />
@@ -836,6 +837,29 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
               </span>
             </div>
             <ChevronDown size={16} className={`transition-transform ${showMobileChapterMenu ? 'rotate-180' : ''}`} />
+          </button>
+          {/* 测试按钮 - 更明显的红色 */}
+          <button
+            type="button"
+            id="test-btn-debug"
+            onClick={() => {
+              alert('测试按钮被点击了！');
+              console.log('测试按钮onClick');
+            }}
+            style={{
+              position: 'absolute',
+              top: '50px',
+              left: '10px',
+              width: '100px',
+              height: '50px',
+              backgroundColor: 'red',
+              color: 'white',
+              fontSize: '14px',
+              zIndex: 9999,
+              border: '2px solid yellow'
+            }}
+          >
+            测试按钮
           </button>
         </div>
         
