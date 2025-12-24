@@ -744,16 +744,32 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                     <>
                       <div 
                         className="fixed inset-0 z-[100] bg-black/40"
-                        onClick={() => setShowMobileChapterMenu(false)}
-                        onTouchEnd={(e) => {
-                          e.preventDefault();
+                        onClick={() => {
+                          console.log('遮罩层点击，关闭菜单');
                           setShowMobileChapterMenu(false);
                         }}
+                        onTouchEnd={(e) => {
+                          e.preventDefault();
+                          console.log('遮罩层触摸，关闭菜单');
+                          setShowMobileChapterMenu(false);
+                        }}
+                        style={{ touchAction: 'manipulation' }}
                       />
                       <div 
                         className="fixed top-[60px] left-4 right-4 bg-white border-2 border-indigo-300 rounded-xl shadow-2xl z-[102] max-h-[calc(100vh-140px)] overflow-y-auto"
-                        onClick={(e) => e.stopPropagation()}
-                        onTouchEnd={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          console.log('菜单容器点击');
+                        }}
+                        onTouchEnd={(e) => {
+                          e.stopPropagation();
+                          console.log('菜单容器触摸');
+                        }}
+                        style={{ 
+                          touchAction: 'manipulation',
+                          pointerEvents: 'auto',
+                          WebkitOverflowScrolling: 'touch'
+                        }}
                       >
                         {/* 卷选择（如果有多卷） */}
                         {novel.volumes.length > 1 && (
@@ -801,16 +817,30 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
+                                  console.log('章节按钮点击:', idx, ch.title);
                                   setActiveChapterIdx(idx);
                                   setShowMobileChapterMenu(false);
+                                }}
+                                onTouchStart={(e) => {
+                                  e.stopPropagation();
                                 }}
                                 onTouchEnd={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
+                                  console.log('章节按钮触摸:', idx, ch.title);
                                   setActiveChapterIdx(idx);
                                   setShowMobileChapterMenu(false);
                                 }}
-                                className={`w-full text-left px-4 py-3 rounded-lg mb-2 transition-all touch-manipulation ${
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                }}
+                                style={{ 
+                                  WebkitTapHighlightColor: 'transparent',
+                                  touchAction: 'manipulation',
+                                  pointerEvents: 'auto',
+                                  userSelect: 'none'
+                                }}
+                                className={`w-full text-left px-4 py-3 rounded-lg mb-2 transition-all touch-manipulation cursor-pointer ${
                                   activeChapterIdx === idx
                                     ? 'bg-indigo-100 border-2 border-indigo-500 text-indigo-900 font-semibold shadow-md'
                                     : 'bg-white border border-slate-200 hover:border-indigo-300 active:bg-slate-50 text-slate-700'
