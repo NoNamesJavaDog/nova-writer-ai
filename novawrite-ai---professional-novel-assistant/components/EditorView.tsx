@@ -850,7 +850,8 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                           </button>
                         </div>
                       </div>
-                    </>
+                    </>,
+                    document.body
                   )}
                 </div>
                 
