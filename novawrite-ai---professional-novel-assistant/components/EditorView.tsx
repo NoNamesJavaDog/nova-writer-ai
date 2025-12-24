@@ -734,45 +734,57 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
       </div>
 
       {/* Editor Area */}
-      <div className="flex-1 flex flex-col bg-white min-w-0 relative">
-        {/* 移动端章节选择器 - 使用最简单的方式 */}
-        <div 
-          className="lg:hidden fixed top-14 left-0 right-0 px-4 py-2 bg-white border-b shadow-sm z-[9999]" 
+      {/* 移动端章节选择器 - 移到最外层，确保始终渲染 */}
+      <div 
+        className="lg:hidden"
+        id="mobile-chapter-select-container"
+        style={{ 
+          position: 'fixed',
+          top: '56px',
+          left: 0,
+          right: 0,
+          padding: '8px 16px',
+          backgroundColor: 'white',
+          borderBottom: '1px solid #e2e8f0',
+          zIndex: 9999
+        }}
+      >
+        <div
+          id="mobile-chapter-select-btn"
+          onClick={() => {
+            console.log('✅✅✅ 按钮被点击了！');
+            setShowMobileChapterMenu(prev => !prev);
+          }}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('✅✅✅ 按钮被触摸了！');
+            setShowMobileChapterMenu(prev => !prev);
+          }}
+          style={{ 
+            width: '100%',
+            minHeight: '44px',
+            padding: '12px',
+            backgroundColor: '#f1f5f9',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            touchAction: 'manipulation'
+          }}
         >
-          <div
-            id="mobile-chapter-select-btn"
-            onClick={() => {
-              console.log('✅✅✅ 按钮被点击了！');
-              setShowMobileChapterMenu(prev => !prev);
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              console.log('✅✅✅ 按钮被触摸了！');
-              setShowMobileChapterMenu(prev => !prev);
-            }}
-            style={{ 
-              width: '100%',
-              minHeight: '44px',
-              padding: '12px',
-              backgroundColor: '#f1f5f9',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              touchAction: 'manipulation'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
-              <List size={16} />
-              <span style={{ fontSize: '14px', fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {activeChapterIdx !== null && currentChapter ? `${activeChapterIdx + 1}. ${currentChapter.title}` : '选择章节'}
-              </span>
-            </div>
-            <ChevronDown size={16} style={{ transform: showMobileChapterMenu ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+            <List size={16} />
+            <span style={{ fontSize: '14px', fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {activeChapterIdx !== null && currentChapter ? `${activeChapterIdx + 1}. ${currentChapter.title}` : '选择章节'}
+            </span>
           </div>
+          <ChevronDown size={16} style={{ transform: showMobileChapterMenu ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
         </div>
+      </div>
+      
+      <div className="flex-1 flex flex-col bg-white min-w-0 relative">
         
         {currentChapter ? (
           <>
