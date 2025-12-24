@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Novel, Chapter } from '../types';
 import { 
   Sparkles, 
