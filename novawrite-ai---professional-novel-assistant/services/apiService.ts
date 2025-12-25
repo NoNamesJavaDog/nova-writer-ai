@@ -504,8 +504,8 @@ export const novelApi = {
       
       // 3. 同步角色
       const existingCharacters = (await characterApi.getAll(novel.id)) || [];
-      const novelCharacters = novel.characters || [];
-      const novelCharacterIds = new Set(novelCharacters.map(c => c.id));
+      const novelCharacters = (novel.characters && Array.isArray(novel.characters)) ? novel.characters : [];
+      const novelCharacterIds = new Set(novelCharacters.filter(c => c && c.id).map(c => c.id));
       
       // 删除不在列表中的角色
       for (const existing of existingCharacters) {
@@ -530,8 +530,8 @@ export const novelApi = {
       
       // 4. 同步世界观设定
       const existingWorldSettings = (await worldSettingApi.getAll(novel.id)) || [];
-      const novelWorldSettings = novel.worldSettings || [];
-      const novelWorldSettingIds = new Set(novelWorldSettings.map(w => w.id));
+      const novelWorldSettings = (novel.worldSettings && Array.isArray(novel.worldSettings)) ? novel.worldSettings : [];
+      const novelWorldSettingIds = new Set(novelWorldSettings.filter(w => w && w.id).map(w => w.id));
       
       for (const existing of existingWorldSettings) {
         if (!novelWorldSettingIds.has(existing.id)) {
@@ -554,8 +554,8 @@ export const novelApi = {
       
       // 5. 同步时间线
       const existingTimeline = (await timelineApi.getAll(novel.id)) || [];
-      const novelTimeline = novel.timeline || [];
-      const novelTimelineIds = new Set(novelTimeline.map(t => t.id));
+      const novelTimeline = (novel.timeline && Array.isArray(novel.timeline)) ? novel.timeline : [];
+      const novelTimelineIds = new Set(novelTimeline.filter(t => t && t.id).map(t => t.id));
       
       for (const existing of existingTimeline) {
         if (!novelTimelineIds.has(existing.id)) {
