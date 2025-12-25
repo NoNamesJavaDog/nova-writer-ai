@@ -232,12 +232,59 @@ def write_chapter_content_stream(
     chapter_prompt_hints: str,
     characters: list,
     world_settings: list,
-    previous_chapters_context: Optional[str] = None
+    previous_chapters_context: Optional[str] = None,
+    novel_id: Optional[str] = None,
+    current_chapter_id: Optional[str] = None,
+    db_session=None
 ):
     """生成章节内容（流式）"""
     try:
         characters_text = "；".join([f"{c.get('name', '')}：{c.get('personality', '')}" for c in characters]) if characters else "暂无"
         world_text = "；".join([f"{w.get('title', '')}：{w.get('description', '')}" for w in world_settings]) if world_settings else "暂无"
+        
+        # 新增：使用向量检索获取智能上下文（如果提供了 novel_id 和 db_session）
+        if novel_id and db_session:
+            try:
+                from services.consistency_checker import ConsistencyChecker
+                from services.content_similarity_checker import ContentSimilarityChecker
+                
+                # 可选：在生成前进行相似度检查（仅警告，不阻止生成）
+                try:
+                    similarity_checker = ContentSimilarityChecker()
+                    similarity_result = similarity_checker.check_before_generation(
+                        db=db_session,
+                        novel_id=novel_id,
+                        chapter_title=chapter_title,
+                        chapter_summary=chapter_summary,
+                        exclude_chapter_ids=[current_chapter_id] if current_chapter_id else None,
+                        similarity_threshold=0.8
+                    )
+                    if similarity_result.get("has_similar_content"):
+                        import logging
+                        logging.getLogger(__name__).warning(f"⚠️  相似度警告: {similarity_result.get('warnings', [])}")
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"⚠️  相似度检查失败（继续生成）: {str(e)}")
+                
+                # 获取智能上下文
+                checker = ConsistencyChecker()
+                smart_context = checker.get_relevant_context_text(
+                    db=db_session,
+                    novel_id=novel_id,
+                    current_chapter_title=chapter_title,
+                    current_chapter_summary=chapter_summary,
+                    exclude_chapter_ids=[current_chapter_id] if current_chapter_id else None,
+                    max_chapters=3
+                )
+                
+                if smart_context and smart_context.strip():
+                    previous_chapters_context = smart_context
+                    import logging
+                    logging.getLogger(__name__).info(f"✅ 使用智能上下文检索，找到 {len(smart_context.split('---'))} 个相关章节")
+            except Exception as e:
+                # 如果向量检索失败，使用原始上下文，不影响主流程
+                import logging
+                logging.getLogger(__name__).warning(f"⚠️  智能上下文检索失败，使用原始上下文: {str(e)}")
         
         # 构建前文上下文部分
         previous_context_section = ""

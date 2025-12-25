@@ -138,7 +138,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             设置
           </button>
         </div>
-      </div>
+      </aside>
     </>
   );
 };
