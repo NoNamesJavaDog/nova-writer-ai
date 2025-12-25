@@ -315,53 +315,69 @@ function novelToApi(novel: Novel): any {
 
 // 转换后端 Novel 格式到前端格式
 function apiToNovel(apiNovel: any): Novel {
+  if (!apiNovel) {
+    throw new Error('apiNovel is null or undefined');
+  }
+  
   return {
-    id: apiNovel.id,
-    title: apiNovel.title,
-    genre: apiNovel.genre,
+    id: apiNovel.id || '',
+    title: apiNovel.title || '',
+    genre: apiNovel.genre || '',
     synopsis: apiNovel.synopsis || '',
     fullOutline: apiNovel.full_outline || '',
-    volumes: (apiNovel.volumes || []).map((v: any) => ({
-      id: v.id,
-      title: v.title,
-      summary: v.summary || '',
-      outline: v.outline || '',
-      chapters: (v.chapters || []).map((c: any) => ({
-        id: c.id,
-        title: c.title,
-        summary: c.summary || '',
-        content: c.content || '',
-        aiPromptHints: c.ai_prompt_hints || '',
+    volumes: (Array.isArray(apiNovel.volumes) ? apiNovel.volumes : [])
+      .filter((v: any) => v && v.id)
+      .map((v: any) => ({
+        id: v.id,
+        title: v.title || '',
+        summary: v.summary || '',
+        outline: v.outline || '',
+        chapters: (Array.isArray(v.chapters) ? v.chapters : [])
+          .filter((c: any) => c && c.id)
+          .map((c: any) => ({
+            id: c.id,
+            title: c.title || '',
+            summary: c.summary || '',
+            content: c.content || '',
+            aiPromptHints: c.ai_prompt_hints || '',
+          })),
       })),
-    })),
-    characters: (apiNovel.characters || []).map((c: any) => ({
-      id: c.id,
-      name: c.name,
-      age: c.age || '',
-      role: c.role || '',
-      personality: c.personality || '',
-      background: c.background || '',
-      goals: c.goals || '',
-    })),
-    worldSettings: (apiNovel.world_settings || []).map((w: any) => ({
-      id: w.id,
-      title: w.title,
-      description: w.description,
-      category: w.category as any,
-    })),
-    timeline: (apiNovel.timeline_events || []).map((t: any) => ({
-      id: t.id,
-      time: t.time,
-      event: t.event,
-      impact: t.impact || '',
-    })),
-    foreshadowings: (apiNovel.foreshadowings || []).map((f: any) => ({
-      id: f.id,
-      content: f.content || '',
-      chapterId: f.chapter_id || undefined,
-      resolvedChapterId: f.resolved_chapter_id || undefined,
-      isResolved: f.is_resolved || 'false',
-    })),
+    characters: (Array.isArray(apiNovel.characters) ? apiNovel.characters : [])
+      .filter((c: any) => c && c.id)
+      .map((c: any) => ({
+        id: c.id,
+        name: c.name || '',
+        age: c.age || '',
+        role: c.role || '',
+        personality: c.personality || '',
+        background: c.background || '',
+        goals: c.goals || '',
+      })),
+    worldSettings: (Array.isArray(apiNovel.world_settings) ? apiNovel.world_settings : [])
+      .filter((w: any) => w && w.id)
+      .map((w: any) => ({
+        id: w.id,
+        title: w.title || '',
+        description: w.description || '',
+        category: w.category as any,
+      })),
+    timeline: (Array.isArray(apiNovel.timeline_events) ? apiNovel.timeline_events : [])
+      .filter((t: any) => t && t.id)
+      .map((t: any) => ({
+        id: t.id,
+        time: t.time || '',
+        event: t.event || '',
+        impact: t.impact || '',
+      })),
+    foreshadowings: (Array.isArray(apiNovel.foreshadowings) ? apiNovel.foreshadowings : [])
+      .filter((f: any) => f && f.id)
+      .map((f: any) => ({
+        id: f.id,
+        content: f.content || '',
+        chapterId: f.chapter_id || undefined,
+        resolvedChapterId: f.resolved_chapter_id || undefined,
+        isResolved: f.is_resolved || 'false',
+      })),
   };
 }
 
@@ -418,8 +434,8 @@ export const novelApi = {
       
       // 2. 同步卷和章节（简化：只更新存在的，新增的通过批量API处理）
       const existingVolumes = (await volumeApi.getAll(novel.id)) || [];
-      const existingVolumeIds = new Set(existingVolumes.map(v => v.id));
-      const novelVolumes = novel.volumes || [];
+      const existingVolumeIds = new Set(existingVolumes.filter(v => v && v.id).map(v => v.id));
+      const novelVolumes = (novel.volumes && Array.isArray(novel.volumes)) ? novel.volumes : [];
       
       for (const volume of novelVolumes) {
         if (existingVolumeIds.has(volume.id)) {
@@ -432,9 +448,9 @@ export const novelApi = {
           
           // 同步章节（获取现有章节）
           const existingChapters = (await chapterApi.getAll(volume.id)) || [];
-          const existingChapterIds = new Set(existingChapters.map(c => c.id));
-          const volumeChapters = volume.chapters || [];
-          const frontendChapterIds = new Set(volumeChapters.map(c => c.id));
+          const existingChapterIds = new Set(existingChapters.filter(c => c && c.id).map(c => c.id));
+          const volumeChapters = (volume.chapters && Array.isArray(volume.chapters)) ? volume.chapters : [];
+          const frontendChapterIds = new Set(volumeChapters.filter(c => c && c.id).map(c => c.id));
           
           // 更新或创建章节
           for (const chapter of volumeChapters) {
@@ -465,7 +481,7 @@ export const novelApi = {
           
           // 重新排序章节：按照前端传入的顺序
           if (volumeChapters.length > 0) {
-            const chapterIds = volumeChapters.map(ch => ch.id);
+            const chapterIds = volumeChapters.filter(ch => ch && ch.id).map(ch => ch.id);
             await chapterApi.reorder(volume.id, chapterIds);
           }
         } else {
@@ -477,9 +493,9 @@ export const novelApi = {
           });
           
           // 批量创建章节
-          const volumeChaptersForNew = volume.chapters || [];
+          const volumeChaptersForNew = (volume.chapters && Array.isArray(volume.chapters)) ? volume.chapters : [];
           if (volumeChaptersForNew.length > 0) {
-            await chapterApi.createBatch(newVolume.id, volumeChaptersForNew.map(ch => ({
+            await chapterApi.createBatch(newVolume.id, volumeChaptersForNew.filter(ch => ch).map(ch => ({
               title: ch.title,
               summary: ch.summary,
               content: ch.content,
@@ -491,11 +507,13 @@ export const novelApi = {
       
       // 删除不在前端列表中的卷（包括其所有章节）
       for (const existingVolume of existingVolumes) {
-        if (!novelVolumes.some(v => v.id === existingVolume.id)) {
+        if (existingVolume && existingVolume.id && !novelVolumes.some(v => v && v.id === existingVolume.id)) {
           // 先删除卷下的所有章节
           const volumeChapters = (await chapterApi.getAll(existingVolume.id)) || [];
           for (const chapter of volumeChapters) {
-            await chapterApi.delete(existingVolume.id, chapter.id);
+            if (chapter && chapter.id) {
+              await chapterApi.delete(existingVolume.id, chapter.id);
+            }
           }
           // 然后删除卷
           await volumeApi.delete(novel.id, existingVolume.id);
@@ -509,7 +527,7 @@ export const novelApi = {
       
       // 删除不在列表中的角色
       for (const existing of existingCharacters) {
-        if (!novelCharacterIds.has(existing.id)) {
+        if (existing && existing.id && !novelCharacterIds.has(existing.id)) {
           await characterApi.delete(novel.id, existing.id);
         }
       }
@@ -517,7 +535,8 @@ export const novelApi = {
       // 更新或创建角色
       const charactersToCreate: Partial<Character>[] = [];
       for (const character of novelCharacters) {
-        const existing = existingCharacters.find(c => c.id === character.id);
+        if (!character || !character.id) continue;
+        const existing = existingCharacters.find(c => c && c.id === character.id);
         if (existing) {
           await characterApi.update(novel.id, character.id, character);
         } else {
@@ -534,14 +553,15 @@ export const novelApi = {
       const novelWorldSettingIds = new Set(novelWorldSettings.filter(w => w && w.id).map(w => w.id));
       
       for (const existing of existingWorldSettings) {
-        if (!novelWorldSettingIds.has(existing.id)) {
+        if (existing && existing.id && !novelWorldSettingIds.has(existing.id)) {
           await worldSettingApi.delete(novel.id, existing.id);
         }
       }
       
       const worldSettingsToCreate: Partial<WorldSetting>[] = [];
       for (const worldSetting of novelWorldSettings) {
-        const existing = existingWorldSettings.find(w => w.id === worldSetting.id);
+        if (!worldSetting || !worldSetting.id) continue;
+        const existing = existingWorldSettings.find(w => w && w.id === worldSetting.id);
         if (existing) {
           await worldSettingApi.update(novel.id, worldSetting.id, worldSetting);
         } else {
@@ -558,14 +578,15 @@ export const novelApi = {
       const novelTimelineIds = new Set(novelTimeline.filter(t => t && t.id).map(t => t.id));
       
       for (const existing of existingTimeline) {
-        if (!novelTimelineIds.has(existing.id)) {
+        if (existing && existing.id && !novelTimelineIds.has(existing.id)) {
           await timelineApi.delete(novel.id, existing.id);
         }
       }
       
       const timelineToCreate: Partial<TimelineEvent>[] = [];
       for (const timelineEvent of novelTimeline) {
-        const existing = existingTimeline.find(t => t.id === timelineEvent.id);
+        if (!timelineEvent || !timelineEvent.id) continue;
+        const existing = existingTimeline.find(t => t && t.id === timelineEvent.id);
         if (existing) {
           await timelineApi.update(novel.id, timelineEvent.id, timelineEvent);
         } else {
@@ -583,7 +604,7 @@ export const novelApi = {
       
       // 删除不在列表中的伏笔
       for (const existing of existingForeshadowings) {
-        if (!novelForeshadowingIds.has(existing.id)) {
+        if (existing && existing.id && !novelForeshadowingIds.has(existing.id)) {
           await foreshadowingApi.delete(novel.id, existing.id);
         }
       }
@@ -591,7 +612,8 @@ export const novelApi = {
       // 更新或创建伏笔
       const foreshadowingsToCreate: Partial<Foreshadowing>[] = [];
       for (const foreshadowing of novelForeshadowings) {
-        const existing = existingForeshadowings.find(f => f.id === foreshadowing.id);
+        if (!foreshadowing || !foreshadowing.id) continue;
+        const existing = existingForeshadowings.find(f => f && f.id === foreshadowing.id);
         if (existing) {
           await foreshadowingApi.update(novel.id, foreshadowing.id, foreshadowing);
         } else {
@@ -616,18 +638,21 @@ export const novelApi = {
 export const volumeApi = {
   getAll: async (novelId: string): Promise<Volume[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/volumes`);
-    return response.map(v => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(v => v && v.id).map(v => ({
       id: v.id,
-      title: v.title,
+      title: v.title || '',
       summary: v.summary || '',
       outline: v.outline || '',
-      chapters: (v.chapters || []).map((c: any) => ({
-        id: c.id,
-        title: c.title,
-        summary: c.summary || '',
-        content: c.content || '',
-        aiPromptHints: c.ai_prompt_hints || '',
-      })),
+      chapters: (Array.isArray(v.chapters) ? v.chapters : [])
+        .filter((c: any) => c && c.id)
+        .map((c: any) => ({
+          id: c.id,
+          title: c.title || '',
+          summary: c.summary || '',
+          content: c.content || '',
+          aiPromptHints: c.ai_prompt_hints || '',
+        })),
     }));
   },
   
@@ -680,13 +705,16 @@ export const chapterApi = {
   getAll: async (volumeId: string): Promise<Chapter[]> => {
     // 注意：需要通过卷获取章节
     const response = await apiRequest<any[]>(`/api/volumes/${volumeId}/chapters`);
-    return (response || []).map(c => ({
-      id: c.id,
-      title: c.title,
-      summary: c.summary || '',
-      content: c.content || '',
-      aiPromptHints: c.ai_prompt_hints || '',
-    }));
+    if (!Array.isArray(response)) return [];
+    return response
+      .filter(c => c && c.id)
+      .map(c => ({
+        id: c.id,
+        title: c.title || '',
+        summary: c.summary || '',
+        content: c.content || '',
+        aiPromptHints: c.ai_prompt_hints || '',
+      }));
   },
   
   create: async (volumeId: string, chapter: Partial<Chapter>): Promise<Chapter> => {
@@ -712,16 +740,17 @@ export const chapterApi = {
   createBatch: async (volumeId: string, chapters: Partial<Chapter>[]): Promise<Chapter[]> => {
     const response = await apiRequest<any[]>(`/api/volumes/${volumeId}/chapters`, {
       method: 'POST',
-      body: JSON.stringify(chapters.map(c => ({
-        title: c.title,
-        summary: c.summary,
-        content: c.content,
-        ai_prompt_hints: c.aiPromptHints,
+      body: JSON.stringify((Array.isArray(chapters) ? chapters : []).filter(c => c).map(c => ({
+        title: c.title || '',
+        summary: c.summary || '',
+        content: c.content || '',
+        ai_prompt_hints: c.aiPromptHints || '',
       }))),
     });
-    return response.map(c => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(c => c && c.id).map(c => ({
       id: c.id,
-      title: c.title,
+      title: c.title || '',
       summary: c.summary || '',
       content: c.content || '',
       aiPromptHints: c.ai_prompt_hints || '',
@@ -766,9 +795,10 @@ export const chapterApi = {
 export const characterApi = {
   getAll: async (novelId: string): Promise<Character[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/characters`);
-    return response.map(c => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(c => c && c.id).map(c => ({
       id: c.id,
-      name: c.name,
+      name: c.name || '',
       age: c.age || '',
       role: c.role || '',
       personality: c.personality || '',
@@ -780,7 +810,7 @@ export const characterApi = {
   create: async (novelId: string, characters: Partial<Character>[]): Promise<Character[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/characters`, {
       method: 'POST',
-      body: JSON.stringify(characters.map(c => ({
+      body: JSON.stringify((Array.isArray(characters) ? characters : []).filter(c => c).map(c => ({
         name: c.name,
         age: c.age,
         role: c.role,
@@ -789,9 +819,10 @@ export const characterApi = {
         goals: c.goals,
       }))),
     });
-    return response.map(c => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(c => c && c.id).map(c => ({
       id: c.id,
-      name: c.name,
+      name: c.name || '',
       age: c.age || '',
       role: c.role || '',
       personality: c.personality || '',
@@ -835,10 +866,11 @@ export const characterApi = {
 export const worldSettingApi = {
   getAll: async (novelId: string): Promise<WorldSetting[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/world-settings`);
-    return response.map(w => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(w => w && w.id).map(w => ({
       id: w.id,
-      title: w.title,
-      description: w.description,
+      title: w.title || '',
+      description: w.description || '',
       category: w.category as any,
     }));
   },
@@ -846,16 +878,17 @@ export const worldSettingApi = {
   create: async (novelId: string, worldSettings: Partial<WorldSetting>[]): Promise<WorldSetting[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/world-settings`, {
       method: 'POST',
-      body: JSON.stringify(worldSettings.map(w => ({
+      body: JSON.stringify((Array.isArray(worldSettings) ? worldSettings : []).filter(w => w).map(w => ({
         title: w.title,
         description: w.description,
         category: w.category,
       }))),
     });
-    return response.map(w => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(w => w && w.id).map(w => ({
       id: w.id,
-      title: w.title,
-      description: w.description,
+      title: w.title || '',
+      description: w.description || '',
       category: w.category as any,
     }));
   },
@@ -889,10 +922,11 @@ export const worldSettingApi = {
 export const timelineApi = {
   getAll: async (novelId: string): Promise<TimelineEvent[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/timeline`);
-    return response.map(t => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(t => t && t.id).map(t => ({
       id: t.id,
-      time: t.time,
-      event: t.event,
+      time: t.time || '',
+      event: t.event || '',
       impact: t.impact || '',
     }));
   },
@@ -900,16 +934,17 @@ export const timelineApi = {
   create: async (novelId: string, timelineEvents: Partial<TimelineEvent>[]): Promise<TimelineEvent[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/timeline`, {
       method: 'POST',
-      body: JSON.stringify(timelineEvents.map(t => ({
+      body: JSON.stringify((Array.isArray(timelineEvents) ? timelineEvents : []).filter(t => t).map(t => ({
         time: t.time,
         event: t.event,
         impact: t.impact,
       }))),
     });
-    return response.map(t => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(t => t && t.id).map(t => ({
       id: t.id,
-      time: t.time,
-      event: t.event,
+      time: t.time || '',
+      event: t.event || '',
       impact: t.impact || '',
     }));
   },
@@ -943,9 +978,10 @@ export const timelineApi = {
 export const foreshadowingApi = {
   getAll: async (novelId: string): Promise<Foreshadowing[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/foreshadowings`);
-    return response.map(f => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(f => f && f.id).map(f => ({
       id: f.id,
-      content: f.content,
+      content: f.content || '',
       chapterId: f.chapter_id || undefined,
       resolvedChapterId: f.resolved_chapter_id || undefined,
       isResolved: f.is_resolved || "false",
@@ -955,16 +991,17 @@ export const foreshadowingApi = {
   create: async (novelId: string, foreshadowings: Partial<Foreshadowing>[]): Promise<Foreshadowing[]> => {
     const response = await apiRequest<any[]>(`/api/novels/${novelId}/foreshadowings`, {
       method: 'POST',
-      body: JSON.stringify(foreshadowings.map(f => ({
+      body: JSON.stringify((Array.isArray(foreshadowings) ? foreshadowings : []).filter(f => f).map(f => ({
         content: f.content,
         chapter_id: f.chapterId || null,
         resolved_chapter_id: f.resolvedChapterId || null,
         is_resolved: f.isResolved || "false",
       }))),
     });
-    return response.map(f => ({
+    if (!Array.isArray(response)) return [];
+    return response.filter(f => f && f.id).map(f => ({
       id: f.id,
-      content: f.content,
+      content: f.content || '',
       chapterId: f.chapter_id || undefined,
       resolvedChapterId: f.resolved_chapter_id || undefined,
       isResolved: f.is_resolved || "false",
