@@ -633,6 +633,68 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
     if (text) setSelectedText(text);
   };
 
+  // 导出章节内容为TXT文件
+  const handleExportChapter = () => {
+    if (!currentChapter || !currentChapter.content) {
+      alert('当前章节没有内容，无法导出');
+      return;
+    }
+
+    const content = `${currentChapter.title}\n\n${currentChapter.content}`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentChapter.title}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // 导出整本小说为TXT文件
+  const handleExportNovel = () => {
+    if (!novel.volumes || novel.volumes.length === 0) {
+      alert('没有内容可以导出');
+      return;
+    }
+
+    let content = `${novel.title}\n\n`;
+    if (novel.synopsis) {
+      content += `简介：\n${novel.synopsis}\n\n`;
+    }
+    if (novel.fullOutline) {
+      content += `完整大纲：\n${novel.fullOutline}\n\n`;
+    }
+    content += '='.repeat(50) + '\n\n';
+
+    novel.volumes.forEach((volume, volIdx) => {
+      content += `\n第${volIdx + 1}卷：${volume.title}\n`;
+      if (volume.summary) {
+        content += `卷简介：${volume.summary}\n`;
+      }
+      content += '='.repeat(50) + '\n\n';
+
+      volume.chapters.forEach((chapter, chIdx) => {
+        if (chapter.content && chapter.content.trim()) {
+          content += `\n第${chIdx + 1}章：${chapter.title}\n\n`;
+          content += chapter.content;
+          content += '\n\n' + '-'.repeat(50) + '\n\n';
+        }
+      });
+    });
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${novel.title || '未命名小说'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
       {/* 移动端章节选择器 - 放在最前面，确保总是渲染 */}
