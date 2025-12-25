@@ -16,7 +16,8 @@ import {
   X,
   ChevronDown,
   List,
-  Copy
+  Copy,
+  Download
 } from 'lucide-react';
 import { writeChapterContent, writeNextChapterContent, expandText, polishText, extractForeshadowingsFromChapter } from '../services/geminiService';
 import { foreshadowingApi, chapterApi } from '../services/apiService';
@@ -1021,6 +1022,25 @@ ${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}
                 >
                   <Copy size={14} />
                   <span className="hidden sm:inline">复制</span>
+                </button>
+                <button 
+                  onClick={handleExportChapter}
+                  disabled={!currentChapter.content}
+                  className="px-3 md:px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                  title="导出本章为TXT文件"
+                >
+                  <Download size={14} />
+                  <span className="hidden sm:inline">导出本章</span>
+                  <span className="sm:hidden">导出</span>
+                </button>
+                <button 
+                  onClick={handleExportNovel}
+                  className="px-3 md:px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1.5"
+                  title="导出整本小说为TXT文件"
+                >
+                  <Download size={14} />
+                  <span className="hidden sm:inline">导出小说</span>
+                  <span className="sm:hidden">全部</span>
                 </button>
                 <button 
                   onClick={handleDraftWithAI}
