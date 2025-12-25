@@ -270,6 +270,7 @@ class WriteChapterRequest(BaseModel):
     chapter_prompt_hints: str
     characters: Optional[List[dict]] = None
     world_settings: Optional[List[dict]] = None
+    previous_chapters_context: Optional[str] = None  # 前文上下文，用于避免重复内容
 
 class GenerateCharactersRequest(BaseModel):
     title: str

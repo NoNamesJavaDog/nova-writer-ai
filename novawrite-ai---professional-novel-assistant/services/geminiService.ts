@@ -205,6 +205,45 @@ export const generateChapterOutline = async (
   }
 };
 
+// 获取前文章节上下文（用于避免重复内容）
+const getPreviousChaptersContext = (
+  novel: Novel,
+  chapterIndex: number,
+  volumeIndex: number,
+  maxChapters: number = 3  // 默认传递前3章
+): string => {
+  const chapters = novel.volumes[volumeIndex].chapters;
+  if (chapterIndex === 0) return ""; // 第一章没有前文
+  
+  // 获取前面几章（最多maxChapters章）
+  const startIdx = Math.max(0, chapterIndex - maxChapters);
+  const previousChapters = chapters.slice(startIdx, chapterIndex);
+  
+  return previousChapters.map((ch, idx) => {
+    const actualIdx = startIdx + idx;
+    let context = `第${actualIdx + 1}章《${ch.title}》`;
+    
+    if (ch.content && ch.content.trim()) {
+      // 如果有内容，提取摘要（取前800字 + 结尾200字，或者直接截取1000字）
+      const content = ch.content;
+      let summary = "";
+      
+      if (content.length <= 1000) {
+        summary = content;
+      } else {
+        // 开头800字 + 结尾200字，保证连贯性
+        summary = content.substring(0, 800) + "\n[...]\n" + content.substring(content.length - 200);
+      }
+      context += `：\n${summary}`;
+    } else if (ch.summary) {
+      // 如果没有内容但有摘要，使用摘要
+      context += `摘要：${ch.summary}`;
+    }
+    
+    return context;
+  }).join("\n\n---\n\n");
+};
+
 // 生成章节内容
 export const writeChapterContent = async (
   novel: Novel,
@@ -216,6 +255,9 @@ export const writeChapterContent = async (
     const chapter = novel.volumes[volumeIndex].chapters[chapterIndex];
     const token = localStorage.getItem("access_token");
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+    // 获取前文上下文（前3章）
+    const previousChaptersContext = getPreviousChaptersContext(novel, chapterIndex, volumeIndex, 3);
 
     const response = await fetch(`${API_BASE_URL}/api/ai/write-chapter`, {
       method: "POST",
@@ -238,6 +280,7 @@ export const writeChapterContent = async (
           title: w.title,
           description: w.description,
         })),
+        previous_chapters_context: previousChaptersContext || undefined,  // 传递前文上下文
       }),
     });
 

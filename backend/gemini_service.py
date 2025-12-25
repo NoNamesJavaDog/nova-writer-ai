@@ -231,12 +231,29 @@ def write_chapter_content_stream(
     chapter_summary: str,
     chapter_prompt_hints: str,
     characters: list,
-    world_settings: list
+    world_settings: list,
+    previous_chapters_context: Optional[str] = None
 ):
     """生成章节内容（流式）"""
     try:
         characters_text = "；".join([f"{c.get('name', '')}：{c.get('personality', '')}" for c in characters]) if characters else "暂无"
         world_text = "；".join([f"{w.get('title', '')}：{w.get('description', '')}" for w in world_settings]) if world_settings else "暂无"
+        
+        # 构建前文上下文部分
+        previous_context_section = ""
+        if previous_chapters_context and previous_chapters_context.strip():
+            previous_context_section = f"""
+
+前文内容摘要（最近几章）：
+{previous_chapters_context}
+
+重要提示：
+- 以上是前面章节的内容摘要，请仔细阅读以避免重复
+- 严格避免重复前面章节中已经详细描述过的情节、场景、对话模式
+- 如果必须提及前文内容，请使用简洁的过渡性描述，不要重复详细描写
+- 保持与前文的连贯性，但要在新章节中推进新的情节发展
+- 避免使用与前面章节相同的描写手法和表达方式
+"""
         
         prompt = f"""请为小说《{novel_title}》创作一个完整的章节。
 章节标题：{chapter_title}
@@ -247,7 +264,7 @@ def write_chapter_content_stream(
 完整小说简介：{synopsis}
 涉及角色：{characters_text}
 世界观规则：{world_text}
-
+{previous_context_section}
 重要字数要求：
 - 章节正文内容应该在5000-8000字之间
 - 确保内容充实，情节完整，有足够的细节描写和对话
