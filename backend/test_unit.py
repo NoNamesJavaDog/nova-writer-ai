@@ -38,7 +38,8 @@ class TestEmbeddingService(unittest.TestCase):
     def test_chunk_size(self):
         """测试分块大小"""
         text = "这是一个较长的测试文本。" * 10
-        chunks = self.service._split_into_chunks(text, chunk_size=50)
+        chunk_size = 50
+        chunks = self.service._split_into_chunks(text, chunk_size=chunk_size)
         
         for chunk in chunks:
             # 每个块应该不超过chunk_size（允许一些余量）
