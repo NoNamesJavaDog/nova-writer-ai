@@ -1,5 +1,6 @@
 // 用户认证服务 - 使用后端API
-import { User } from '../types';
+// 使用 type 导入，避免在模块初始化时执行代码
+import type { User } from '../types';
 
 // 类型定义
 type LoginData = {

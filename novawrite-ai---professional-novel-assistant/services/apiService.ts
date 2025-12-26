@@ -1,5 +1,6 @@
 // API 服务 - 封装所有后端 API 调用
-import { Novel, Character, WorldSetting, TimelineEvent, Foreshadowing, Volume, Chapter, User } from '../types';
+// 使用 type 导入类型，避免在模块初始化时执行代码
+import type { Novel, Character, WorldSetting, TimelineEvent, Foreshadowing, Volume, Chapter, User } from '../types';
 
 // 使用相对路径，由 Nginx 代理到后端
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
