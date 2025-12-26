@@ -276,7 +276,7 @@ async def get_novels(
         novels = db.query(Novel).filter(Novel.user_id == current_user.id).order_by(Novel.updated_at.desc()).all()
         result = []
         for novel in novels:
-        novel_dict = {
+            novel_dict = {
             "id": novel.id,
             "user_id": novel.user_id,
             "title": novel.title,
@@ -350,7 +350,7 @@ async def get_novels(
                 "created_at": f.created_at,
                 "updated_at": f.updated_at
             } for f in novel.foreshadowings]
-        }
+            }
             result.append(convert_to_camel_case(novel_dict))
         return result
     except Exception as e:
