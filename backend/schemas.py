@@ -67,6 +67,14 @@ class CharacterBase(BaseModel):
 class CharacterCreate(CharacterBase):
     pass
 
+class CharacterUpdate(BaseModel):
+    name: Optional[str] = None
+    age: Optional[str] = None
+    role: Optional[str] = None
+    personality: Optional[str] = None
+    background: Optional[str] = None
+    goals: Optional[str] = None
+
 class CharacterResponse(CharacterBase):
     id: str
     novel_id: str
@@ -94,6 +102,11 @@ class WorldSettingBase(BaseModel):
 class WorldSettingCreate(WorldSettingBase):
     pass
 
+class WorldSettingUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+
 class WorldSettingResponse(WorldSettingBase):
     id: str
     novel_id: str
@@ -112,6 +125,11 @@ class TimelineEventBase(BaseModel):
 
 class TimelineEventCreate(TimelineEventBase):
     pass
+
+class TimelineEventUpdate(BaseModel):
+    time: Optional[str] = None
+    event: Optional[str] = None
+    impact: Optional[str] = None
 
 class TimelineEventResponse(TimelineEventBase):
     id: str
@@ -133,6 +151,12 @@ class ForeshadowingBase(BaseModel):
 class ForeshadowingCreate(ForeshadowingBase):
     pass
 
+class ForeshadowingUpdate(BaseModel):
+    content: Optional[str] = None
+    chapter_id: Optional[str] = None
+    resolved_chapter_id: Optional[str] = None
+    is_resolved: Optional[str] = None
+
 class ForeshadowingResponse(ForeshadowingBase):
     id: str
     novel_id: str
@@ -153,6 +177,12 @@ class ChapterBase(BaseModel):
 class ChapterCreate(ChapterBase):
     pass
 
+class ChapterUpdate(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    content: Optional[str] = None
+    ai_prompt_hints: Optional[str] = None
+
 class ChapterResponse(ChapterBase):
     id: str
     volume_id: str
@@ -171,6 +201,11 @@ class VolumeBase(BaseModel):
 
 class VolumeCreate(VolumeBase):
     pass
+
+class VolumeUpdate(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    outline: Optional[str] = None
 
 class VolumeResponse(VolumeBase):
     id: str

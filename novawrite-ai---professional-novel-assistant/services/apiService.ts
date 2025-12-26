@@ -304,27 +304,31 @@ export const authApi = {
 // ==================== 小说相关 ====================
 
 // 转换前端 Novel 格式到后端格式
+// 注意：后端现在接受 camelCase 格式，此函数主要用于兼容
 function novelToApi(novel: Novel): any {
   return {
     title: novel.title,
     genre: novel.genre,
     synopsis: novel.synopsis || '',
-    full_outline: novel.fullOutline || '',
+    fullOutline: novel.fullOutline || '',  // 后端接受 camelCase
+    full_outline: novel.fullOutline || '',  // 兼容 snake_case
   };
 }
 
 // 转换后端 Novel 格式到前端格式
+// 注意：后端现在返回 camelCase 格式，此函数主要用于兼容和过滤空值
 function apiToNovel(apiNovel: any): Novel {
   if (!apiNovel) {
     throw new Error('apiNovel is null or undefined');
   }
   
+  // 后端已返回 camelCase，但需要处理可能的空值和数组过滤
   return {
-    id: apiNovel.id || '',
+    id: apiNovel.id || apiNovel.id || '',
     title: apiNovel.title || '',
     genre: apiNovel.genre || '',
     synopsis: apiNovel.synopsis || '',
-    fullOutline: apiNovel.full_outline || '',
+    fullOutline: apiNovel.fullOutline || apiNovel.full_outline || '',
     volumes: (Array.isArray(apiNovel.volumes) ? apiNovel.volumes : [])
       .filter((v: any) => v && v.id)
       .map((v: any) => ({
@@ -339,7 +343,7 @@ function apiToNovel(apiNovel: any): Novel {
             title: c.title || '',
             summary: c.summary || '',
             content: c.content || '',
-            aiPromptHints: c.ai_prompt_hints || '',
+            aiPromptHints: c.aiPromptHints || c.ai_prompt_hints || '',
           })),
       })),
     characters: (Array.isArray(apiNovel.characters) ? apiNovel.characters : [])
@@ -353,7 +357,7 @@ function apiToNovel(apiNovel: any): Novel {
         background: c.background || '',
         goals: c.goals || '',
       })),
-    worldSettings: (Array.isArray(apiNovel.world_settings) ? apiNovel.world_settings : [])
+    worldSettings: (Array.isArray(apiNovel.worldSettings) ? apiNovel.worldSettings : Array.isArray(apiNovel.world_settings) ? apiNovel.world_settings : [])
       .filter((w: any) => w && w.id)
       .map((w: any) => ({
         id: w.id,
@@ -361,7 +365,7 @@ function apiToNovel(apiNovel: any): Novel {
         description: w.description || '',
         category: w.category as any,
       })),
-    timeline: (Array.isArray(apiNovel.timeline_events) ? apiNovel.timeline_events : [])
+    timeline: (Array.isArray(apiNovel.timeline) ? apiNovel.timeline : Array.isArray(apiNovel.timelineEvents) ? apiNovel.timelineEvents : Array.isArray(apiNovel.timeline_events) ? apiNovel.timeline_events : [])
       .filter((t: any) => t && t.id)
       .map((t: any) => ({
         id: t.id,
@@ -374,9 +378,9 @@ function apiToNovel(apiNovel: any): Novel {
       .map((f: any) => ({
         id: f.id,
         content: f.content || '',
-        chapterId: f.chapter_id || undefined,
-        resolvedChapterId: f.resolved_chapter_id || undefined,
-        isResolved: f.is_resolved || 'false',
+        chapterId: f.chapterId || f.chapter_id || undefined,
+        resolvedChapterId: f.resolvedChapterId || f.resolved_chapter_id || undefined,
+        isResolved: f.isResolved || f.is_resolved || 'false',
       })),
   };
 }
@@ -425,9 +429,33 @@ export const novelApi = {
   },
   
   // 完整同步小说（包括所有子项）
-  // 注意：这个函数会执行大量的API调用，建议只在必要时使用
-  // 对于频繁的更新操作，建议直接使用对应的API方法
+  // 注意：现在使用后端的同步接口，更高效且保证数据一致性
   syncFull: async (novel: Novel): Promise<Novel> => {
+    try {
+      // 使用后端同步接口
+      const response = await apiRequest<any>(`/api/novels/${novel.id}/sync`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: novel.title,
+          genre: novel.genre,
+          synopsis: novel.synopsis,
+          fullOutline: novel.fullOutline,
+          volumes: novel.volumes,
+          characters: novel.characters,
+          worldSettings: novel.worldSettings,
+          timeline: novel.timeline,
+          foreshadowings: novel.foreshadowings
+        }),
+      });
+      return apiToNovel(response);
+    } catch (error) {
+      console.error('同步小说失败:', error);
+      throw error;
+    }
+  },
+  
+  // 旧版同步方法（已废弃，保留用于兼容）
+  syncFull_old: async (novel: Novel): Promise<Novel> => {
     try {
       // 1. 更新基本信息
       await novelApi.update(novel.id, novel);

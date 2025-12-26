@@ -256,7 +256,9 @@ export const writeChapterContent = async (
     const token = localStorage.getItem("access_token");
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
-    // 获取前文上下文（前3章）
+    // 注意：后端现在会自动使用向量相似度智能选择相关章节作为上下文
+    // 如果提供了 novel_id，后端会忽略 previous_chapters_context 参数
+    // 保留此调用作为备用（当后端无法获取 novel_id 时）
     const previousChaptersContext = getPreviousChaptersContext(novel, chapterIndex, volumeIndex, 3);
 
     const response = await fetch(`${API_BASE_URL}/api/ai/write-chapter`, {
@@ -267,6 +269,7 @@ export const writeChapterContent = async (
       },
       body: JSON.stringify({
         novel_title: novel.title,
+        novel_id: novel.id,  // 传递 novel_id，后端会使用向量相似度智能选择相关章节
         genre: novel.genre,
         synopsis: novel.synopsis || "",
         chapter_title: chapter.title,
@@ -280,7 +283,7 @@ export const writeChapterContent = async (
           title: w.title,
           description: w.description,
         })),
-        previous_chapters_context: previousChaptersContext || undefined,  // 传递前文上下文
+        previous_chapters_context: previousChaptersContext || undefined,  // 备用上下文（后端会自动使用智能上下文）
       }),
     });
 
@@ -320,14 +323,34 @@ export const writeNextChapterContent = async (
 
 // 扩展文本
 export const expandText = async (text: string, context: string) => {
-  // TODO: 在后端实现此功能
-  throw new Error("扩展文本功能暂未实现");
+  try {
+    const response = await apiRequest<{ expanded_text: string }>(
+      "/api/ai/expand-text",
+      {
+        method: "POST",
+        body: JSON.stringify({ text, context }),
+      }
+    );
+    return response.expanded_text;
+  } catch (error: any) {
+    throw new Error(`扩展文本失败: ${error.message || "未知错误"}`);
+  }
 };
 
 // 润色文本
 export const polishText = async (text: string) => {
-  // TODO: 在后端实现此功能
-  throw new Error("润色文本功能暂未实现");
+  try {
+    const response = await apiRequest<{ polished_text: string }>(
+      "/api/ai/polish-text",
+      {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      }
+    );
+    return response.polished_text;
+  } catch (error: any) {
+    throw new Error(`润色文本失败: ${error.message || "未知错误"}`);
+  }
 };
 
 // 生成角色列表（任务模式）
