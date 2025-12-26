@@ -56,11 +56,12 @@ class EmbeddingService:
                 logger.debug(f"生成向量（尝试 {attempt + 1}/{MAX_RETRIES}）: {text[:50]}...")
                 
                 # 使用 Google Gemini Embedding API
-                # 注意：根据实际 API 文档调整调用方式
+                # 注意：API 使用 contents 参数（复数），接受列表
+                from google.genai import types
                 result = client.models.embed_content(
                     model=self.model,
-                    content=text,
-                    task_type=task_type
+                    contents=[text],
+                    config=types.EmbedContentConfig(task_type=task_type)
                 )
                 
                 # 提取向量
