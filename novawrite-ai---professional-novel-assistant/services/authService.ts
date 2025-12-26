@@ -1,13 +1,25 @@
 // 用户认证服务 - 使用后端API
 import { User } from '../types';
-import { authApi, LoginData, RegisterData, CaptchaResponse, LoginStatusResponse } from './apiService';
+import type { LoginData, RegisterData, CaptchaResponse, LoginStatusResponse } from './apiService';
+
+// 延迟导入 authApi 以避免循环依赖
+let _authApi: typeof import('./apiService').authApi | null = null;
+const getAuthApi = async () => {
+  if (!_authApi) {
+    const apiService = await import('./apiService');
+    _authApi = apiService.authApi;
+  }
+  return _authApi;
+};
 
 // 导出验证码相关函数
 export const getCaptcha = async (): Promise<CaptchaResponse> => {
+  const authApi = await getAuthApi();
   return authApi.getCaptcha();
 };
 
 export const checkLoginStatus = async (usernameOrEmail: string): Promise<LoginStatusResponse> => {
+  const authApi = await getAuthApi();
   return authApi.checkLoginStatus(usernameOrEmail);
 };
 
@@ -39,6 +51,7 @@ const setCurrentUserCache = (user: User | null): void => {
 export const register = async (username: string, email: string, password: string): Promise<User> => {
   const data: RegisterData = { username, email, password };
   try {
+    const authApi = await getAuthApi();
     const response = await authApi.register(data);
     setCurrentUserCache(response.user);
     return response.user;
@@ -62,6 +75,7 @@ export const login = async (
   };
   
   try {
+    const authApi = await getAuthApi();
     const response = await authApi.login(data);
     setCurrentUserCache(response.user);
     return response.user;
@@ -72,19 +86,22 @@ export const login = async (
 
 // 登出
 export const logout = (): void => {
-  authApi.logout();
+  // 直接清除令牌，避免循环依赖
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
   setCurrentUserCache(null);
-  // 清除所有令牌已在 authApi.logout() 中处理
 };
 
 // 检查是否已登录
 export const isAuthenticated = (): boolean => {
-  return authApi.isAuthenticated();
+  // 直接检查 token，避免循环依赖
+  return localStorage.getItem('access_token') !== null;
 };
 
 // 刷新当前用户信息（从服务器获取最新信息）
 export const refreshCurrentUser = async (): Promise<User | null> => {
   try {
+    const authApi = await getAuthApi();
     const user = await authApi.getCurrentUser();
     setCurrentUserCache(user);
     return user;
