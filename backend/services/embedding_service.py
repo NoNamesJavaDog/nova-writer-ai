@@ -65,24 +65,30 @@ class EmbeddingService:
                 )
                 
                 # 提取向量
-                # EmbedContentResponse 可能包含 embedding 或 embeddings 属性
+                # EmbedContentResponse 包含 embeddings 属性（列表）
+                # 每个元素是 ContentEmbedding 对象，有 values 属性（向量列表）
                 embedding = None
-                if hasattr(result, 'embedding'):
+                if hasattr(result, 'embeddings') and isinstance(result.embeddings, list) and len(result.embeddings) > 0:
+                    # 获取第一个 ContentEmbedding 对象的 values 属性
+                    content_embedding = result.embeddings[0]
+                    if hasattr(content_embedding, 'values'):
+                        embedding = content_embedding.values
+                    elif hasattr(content_embedding, 'embedding'):
+                        embedding = content_embedding.embedding
+                elif hasattr(result, 'embedding'):
                     embedding = result.embedding
-                elif hasattr(result, 'embeddings') and isinstance(result.embeddings, list) and len(result.embeddings) > 0:
-                    # 如果返回多个向量（因为 contents 是列表），取第一个
-                    embedding = result.embeddings[0]
-                    # 如果第一个元素还有 embedding 属性
-                    if hasattr(embedding, 'embedding'):
-                        embedding = embedding.embedding
-                    elif hasattr(embedding, 'values'):
-                        embedding = embedding.values
-                elif isinstance(result, dict) and 'embedding' in result:
-                    embedding = result['embedding']
                 elif isinstance(result, dict) and 'embeddings' in result:
                     embeddings_list = result['embeddings']
                     if isinstance(embeddings_list, list) and len(embeddings_list) > 0:
-                        embedding = embeddings_list[0]
+                        emb_obj = embeddings_list[0]
+                        if isinstance(emb_obj, dict) and 'values' in emb_obj:
+                            embedding = emb_obj['values']
+                        elif isinstance(emb_obj, dict) and 'embedding' in emb_obj:
+                            embedding = emb_obj['embedding']
+                        else:
+                            embedding = emb_obj
+                elif isinstance(result, dict) and 'embedding' in result:
+                    embedding = result['embedding']
                 elif isinstance(result, list):
                     embedding = result[0] if len(result) > 0 else None
                 
