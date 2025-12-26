@@ -32,7 +32,7 @@ const INITIAL_NOVEL: Novel = {
 
 const App: React.FC = () => {
   // 认证状态
-  const [currentUser, setCurrentUser] = useState<User | null>(() => getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showUserSettings, setShowUserSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -170,21 +170,30 @@ const App: React.FC = () => {
     }
   }, []); // 只在组件挂载时执行一次
 
-  // 当用户切换时，重新加载数据
+  // 初始化：加载当前用户
   useEffect(() => {
     isMountedRef.current = true;
     
-    if (currentUser) {
-      loadNovels();
-    } else {
-      setNovels([]);
-      setCurrentNovelId('');
+    // 延迟加载用户信息，避免初始化顺序问题
+    const user = getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
     }
     
     // 清理函数：组件卸载时标记为未挂载
     return () => {
       isMountedRef.current = false;
     };
+  }, []);
+
+  // 当用户切换时，重新加载数据
+  useEffect(() => {
+    if (currentUser) {
+      loadNovels();
+    } else {
+      setNovels([]);
+      setCurrentNovelId('');
+    }
   }, [currentUser]);
 
   // 保存activeView到localStorage
