@@ -86,7 +86,7 @@ class MigrationTester:
                 # 用户可能已存在，尝试登录
                 print_warning("用户可能已存在，尝试登录...")
                 login_data = {
-                    "username": TEST_USERNAME,
+                    "username_or_email": TEST_USERNAME,
                     "password": TEST_PASSWORD
                 }
                 response = requests.post(f"{BASE_URL}/auth/login", json=login_data, timeout=5)

@@ -39,8 +39,9 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
     const checkActiveTasks = async () => {
       try {
         // 使用 getActiveTasks 获取当前用户的所有活跃任务，然后过滤出当前小说的任务
-        const { getActiveTasks } = await import('../services/taskService');
-        const activeTasks = await getActiveTasks();
+        // 改为静态导入以避免初始化顺序问题
+        const taskService = await import('../services/taskService');
+        const activeTasks = await taskService.getActiveTasks();
         
         // 过滤出当前小说的运行中任务
         const novelActiveTasks = activeTasks.filter(

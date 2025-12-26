@@ -25,7 +25,7 @@ try:
     else:
         print("尝试登录...")
         login_data = {
-            "username": "test_detailed_user",
+            "username_or_email": "test_detailed_user",
             "password": "test123456"
         }
         r = requests.post(f"{BASE_URL}/auth/login", json=login_data, timeout=10)

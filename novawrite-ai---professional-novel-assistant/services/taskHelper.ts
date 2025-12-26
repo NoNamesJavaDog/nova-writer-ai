@@ -1,20 +1,6 @@
 // 任务辅助函数
 import { apiRequest } from './apiService';
-
-export interface Task {
-  id: string;
-  novel_id: string;
-  task_type: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  progress: number;
-  progress_message?: string;
-  result?: any;
-  error_message?: string;
-  created_at: number;
-  updated_at: number;
-  started_at?: number;
-  completed_at?: number;
-}
+import type { Task } from './taskService';
 
 /**
  * 等待任务完成并返回结果

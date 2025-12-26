@@ -1,6 +1,7 @@
 // 任务服务 - 管理任务轮询和状态
 import { apiRequest } from './apiService';
 
+// 统一的任务接口定义
 export interface Task {
   id: string;
   novel_id: string;

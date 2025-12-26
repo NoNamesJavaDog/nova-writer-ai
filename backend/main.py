@@ -481,7 +481,13 @@ async def create_novel(
             "timeline_events": [],
             "foreshadowings": []
         }
-        return convert_to_camel_case(novel_dict)
+        try:
+            result = convert_to_camel_case(novel_dict)
+            return result
+        except Exception as convert_error:
+            logger.error(f"转换数据格式失败: {str(convert_error)}", exc_info=True)
+            # 如果转换失败，直接返回原始数据
+            return novel_dict
     except Exception as e:
         logger.error(f"创建小说失败: {str(e)}", exc_info=True)
         db.rollback()
