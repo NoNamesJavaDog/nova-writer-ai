@@ -116,7 +116,7 @@ const EditorView: React.FC<EditorViewProps> = ({
         btn.removeEventListener('touchend', handleClick);
       };
     }
-  }, [currentChapter, activeChapterIdx]);
+  }, []);
 
   const chapters = novel.volumes[activeVolumeIdx]?.chapters || [];
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;
