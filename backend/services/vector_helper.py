@@ -110,7 +110,7 @@ def store_character_embedding(
             text("""
                 INSERT INTO character_embeddings 
                 (id, character_id, novel_id, full_description_embedding, embedding_model, created_at, updated_at)
-                VALUES (:id, :character_id, :novel_id, :embedding::vector, :model, :created_at, :updated_at)
+                VALUES (:id, :character_id, :novel_id, CAST(:embedding AS vector), :model, :created_at, :updated_at)
                 ON CONFLICT (character_id) DO UPDATE SET
                     full_description_embedding = EXCLUDED.full_description_embedding,
                     updated_at = EXCLUDED.updated_at,
@@ -170,7 +170,7 @@ def store_world_setting_embedding(
             text("""
                 INSERT INTO world_setting_embeddings 
                 (id, world_setting_id, novel_id, full_description_embedding, embedding_model, created_at, updated_at)
-                VALUES (:id, :world_setting_id, :novel_id, :embedding::vector, :model, :created_at, :updated_at)
+                VALUES (:id, :world_setting_id, :novel_id, CAST(:embedding AS vector), :model, :created_at, :updated_at)
                 ON CONFLICT (world_setting_id) DO UPDATE SET
                     full_description_embedding = EXCLUDED.full_description_embedding,
                     updated_at = EXCLUDED.updated_at,
@@ -226,7 +226,7 @@ def store_foreshadowing_embedding(
             text("""
                 INSERT INTO foreshadowing_embeddings 
                 (id, foreshadowing_id, novel_id, content_embedding, embedding_model, created_at, updated_at)
-                VALUES (:id, :foreshadowing_id, :novel_id, :embedding::vector, :model, :created_at, :updated_at)
+                VALUES (:id, :foreshadowing_id, :novel_id, CAST(:embedding AS vector), :model, :created_at, :updated_at)
                 ON CONFLICT (foreshadowing_id) DO UPDATE SET
                     content_embedding = EXCLUDED.content_embedding,
                     updated_at = EXCLUDED.updated_at,
@@ -247,4 +247,3 @@ def store_foreshadowing_embedding(
     except Exception as e:
         db.rollback()
         logger.error(f"⚠️  存储伏笔向量失败（伏笔ID: {foreshadowing_id}）: {str(e)}")
-

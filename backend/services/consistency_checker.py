@@ -153,7 +153,7 @@ class ConsistencyChecker:
             # 3. 计算相似度
             similarity_result = db.execute(
                 text("""
-                    SELECT 1 - (:chapter_embedding::vector <=> :character_embedding::vector) as similarity
+                    SELECT 1 - (CAST(:chapter_embedding AS vector) <=> CAST(:character_embedding AS vector)) as similarity
                 """),
                 {
                     "chapter_embedding": chapter_embedding_str,
@@ -183,4 +183,3 @@ class ConsistencyChecker:
                 "score": 1.0,
                 "message": f"一致性检查失败: {str(e)}"
             }
-

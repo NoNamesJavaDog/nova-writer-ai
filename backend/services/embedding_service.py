@@ -217,7 +217,7 @@ class EmbeddingService:
                 text("""
                     INSERT INTO chapter_embeddings 
                     (id, chapter_id, novel_id, full_content_embedding, paragraph_embeddings, chunk_count, embedding_model, created_at, updated_at)
-                    VALUES (:id, :chapter_id, :novel_id, :full_embedding::vector, :paragraph_embeddings::vector[], :chunk_count, :model, :created_at, :updated_at)
+                    VALUES (:id, :chapter_id, :novel_id, CAST(:full_embedding AS vector), CAST(:paragraph_embeddings AS vector[]), :chunk_count, :model, :created_at, :updated_at)
                     ON CONFLICT (chapter_id) DO UPDATE SET
                         full_content_embedding = EXCLUDED.full_content_embedding,
                         paragraph_embeddings = EXCLUDED.paragraph_embeddings,
@@ -294,7 +294,7 @@ class EmbeddingService:
                 SELECT 
                     ce.chapter_id,
                     ce.chunk_count,
-                    1 - (ce.full_content_embedding <=> :query_embedding::vector) as similarity,
+                    1 - (ce.full_content_embedding <=> CAST(:query_embedding AS vector)) as similarity,
                     c.title as chapter_title,
                     c.summary as chapter_summary,
                     LEFT(c.content, 500) as chapter_content_preview
@@ -303,9 +303,9 @@ class EmbeddingService:
                 JOIN volumes v ON v.id = c.volume_id
                 WHERE v.novel_id = :novel_id
                 AND ce.full_content_embedding IS NOT NULL
-                AND 1 - (ce.full_content_embedding <=> :query_embedding::vector) >= :threshold
+                AND 1 - (ce.full_content_embedding <=> CAST(:query_embedding AS vector)) >= :threshold
                 {exclude_clause}
-                ORDER BY ce.full_content_embedding <=> :query_embedding::vector
+                ORDER BY ce.full_content_embedding <=> CAST(:query_embedding AS vector)
                 LIMIT :limit
             """
             
@@ -379,7 +379,7 @@ class EmbeddingService:
                     c.title as chapter_title,
                     (paragraph_idx - 1) as paragraph_index,
                     paragraph_emb,
-                    1 - (paragraph_emb <=> :query_embedding::vector) as similarity
+                    1 - (paragraph_emb <=> CAST(:query_embedding AS vector)) as similarity
                 FROM chapter_embeddings ce
                 JOIN chapters c ON c.id = ce.chapter_id
                 JOIN volumes v ON v.id = c.volume_id
@@ -387,9 +387,9 @@ class EmbeddingService:
                 WHERE v.novel_id = :novel_id
                 AND ce.paragraph_embeddings IS NOT NULL
                 AND array_length(ce.paragraph_embeddings, 1) > 0
-                AND 1 - (paragraph_emb <=> :query_embedding::vector) >= :threshold
+                AND 1 - (paragraph_emb <=> CAST(:query_embedding AS vector)) >= :threshold
                 {exclude_clause}
-                ORDER BY paragraph_emb <=> :query_embedding::vector
+                ORDER BY paragraph_emb <=> CAST(:query_embedding AS vector)
                 LIMIT :limit
             """
             

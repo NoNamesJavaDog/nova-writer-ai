@@ -72,7 +72,7 @@ class ForeshadowingMatcher:
                 # 计算相似度
                 similarity_result = db.execute(
                     text("""
-                        SELECT 1 - (:chapter_embedding::vector <=> :foreshadowing_embedding::vector) as similarity
+                        SELECT 1 - (CAST(:chapter_embedding AS vector) <=> CAST(:foreshadowing_embedding AS vector)) as similarity
                     """),
                     {
                         "chapter_embedding": chapter_embedding_str,
@@ -210,13 +210,13 @@ class ForeshadowingMatcher:
                         f.is_resolved,
                         f.chapter_id,
                         f.resolved_chapter_id,
-                        1 - (fe.content_embedding <=> :query_embedding::vector) as similarity
+                        1 - (fe.content_embedding <=> CAST(:query_embedding AS vector)) as similarity
                     FROM foreshadowings f
                     JOIN foreshadowing_embeddings fe ON fe.foreshadowing_id = f.id
                     WHERE f.novel_id = :novel_id
                     AND fe.content_embedding IS NOT NULL
-                    AND 1 - (fe.content_embedding <=> :query_embedding::vector) >= :threshold
-                    ORDER BY fe.content_embedding <=> :query_embedding::vector
+                    AND 1 - (fe.content_embedding <=> CAST(:query_embedding AS vector)) >= :threshold
+                    ORDER BY fe.content_embedding <=> CAST(:query_embedding AS vector)
                     LIMIT :limit
                 """),
                 {
@@ -243,4 +243,3 @@ class ForeshadowingMatcher:
         except Exception as e:
             logger.error(f"⚠️  查找相关伏笔失败: {str(e)}")
             return []
-
