@@ -188,11 +188,18 @@ export async function apiRequest<T>(
 
 // ==================== 认证相关 ====================
 
+// 使用内联类型定义，避免在模块级别引用 User 类型
 export interface LoginResponse {
   access_token: string;
   refresh_token: string;
   token_type: string;
-  user: User;
+  user: {
+    id: string;
+    username: string;
+    email: string;
+    createdAt: number;
+    lastLoginAt?: number;
+  };
 }
 
 export interface RefreshTokenRequest {
@@ -287,8 +294,8 @@ export const authApi = {
   },
   
   // 获取当前用户信息
-  getCurrentUser: async (): Promise<User> => {
-    return apiRequest<User>('/api/auth/me');
+  getCurrentUser: async (): Promise<LoginResponse['user']> => {
+    return apiRequest<LoginResponse['user']>('/api/auth/me');
   },
   
   // 登出

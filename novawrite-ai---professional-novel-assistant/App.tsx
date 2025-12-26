@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 // 先导入类型，避免循环依赖
-import type { Novel, AppView, Character, WorldSetting, TimelineEvent, Volume, Chapter, User } from './types';
+import type { Novel, AppView, Character, WorldSetting, TimelineEvent, Volume, Chapter } from './types';
 // 先导入服务，避免在组件初始化时执行
 import { getCurrentUser, logout, refreshCurrentUser } from './services/authService';
 import { novelApi, currentNovelApi, setOnTokenExpired } from './services/apiService';
+import type { LoginResponse } from './services/apiService';
 // 然后导入组件
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -35,7 +36,8 @@ const INITIAL_NOVEL: Novel = {
 
 const App: React.FC = () => {
   // 认证状态
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // 使用 LoginResponse['user'] 类型，与 authService 返回类型一致
+  const [currentUser, setCurrentUser] = useState<LoginResponse['user'] | null>(null);
   const [showUserSettings, setShowUserSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [loading, setLoading] = useState(false);

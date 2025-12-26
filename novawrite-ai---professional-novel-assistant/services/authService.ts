@@ -1,6 +1,5 @@
 // 用户认证服务 - 使用后端API
-// 使用 type 导入，避免在模块初始化时执行代码
-import type { User } from '../types';
+// 完全移除对 User 类型的依赖，使用内联类型定义
 
 // 类型定义
 type LoginData = {
@@ -27,11 +26,18 @@ type LoginStatusResponse = {
   lock_message?: string;
 };
 
+// 使用内联类型定义，避免引用 User 类型
 type LoginResponse = {
   access_token: string;
   refresh_token: string;
   token_type: string;
-  user: User;
+  user: {
+    id: string;
+    username: string;
+    email: string;
+    createdAt: number;
+    lastLoginAt?: number;
+  };
 };
 
 // 使用相对路径，由 Nginx 代理到后端
@@ -104,12 +110,15 @@ export const checkLoginStatus = async (usernameOrEmail: string): Promise<LoginSt
 
 const STORAGE_KEY_CURRENT_USER = 'nova_write_current_user'; // 当前登录用户（缓存）
 
+// 定义用户类型别名
+type UserType = LoginResponse['user'];
+
 // 获取当前登录用户（从缓存）
-export const getCurrentUser = (): User | null => {
+export const getCurrentUser = (): UserType | null => {
   const saved = localStorage.getItem(STORAGE_KEY_CURRENT_USER);
   if (saved) {
     try {
-      return JSON.parse(saved) as User;
+      return JSON.parse(saved) as UserType;
     } catch {
       return null;
     }
@@ -118,7 +127,7 @@ export const getCurrentUser = (): User | null => {
 };
 
 // 设置当前用户到缓存
-const setCurrentUserCache = (user: User | null): void => {
+const setCurrentUserCache = (user: UserType | null): void => {
   if (user) {
     localStorage.setItem(STORAGE_KEY_CURRENT_USER, JSON.stringify(user));
   } else {
@@ -127,7 +136,7 @@ const setCurrentUserCache = (user: User | null): void => {
 };
 
 // 注册新用户
-export const register = async (username: string, email: string, password: string): Promise<User> => {
+export const register = async (username: string, email: string, password: string): Promise<UserType> => {
   const data: RegisterData = { username, email, password };
   try {
     const response: LoginResponse = await apiRequest<LoginResponse>('/api/auth/register', {
@@ -155,7 +164,7 @@ export const login = async (
   password: string, 
   captchaId?: string, 
   captchaCode?: string
-): Promise<User> => {
+): Promise<UserType> => {
   const data: LoginData = {
     username_or_email: usernameOrEmail,
     password: password,
@@ -195,9 +204,9 @@ export const isAuthenticated = (): boolean => {
 };
 
 // 刷新当前用户信息（从服务器获取最新信息）
-export const refreshCurrentUser = async (): Promise<User | null> => {
+export const refreshCurrentUser = async (): Promise<UserType | null> => {
   try {
-    const user: User = await apiRequest<User>('/api/auth/me');
+    const user: UserType = await apiRequest<UserType>('/api/auth/me');
     setCurrentUserCache(user);
     return user;
   } catch (error) {
