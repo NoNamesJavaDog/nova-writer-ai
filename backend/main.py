@@ -357,7 +357,7 @@ async def get_novels(
                     "updated_at": f.updated_at
                 } for f in novel.foreshadowings]
             }
-            result.append(convert_to_camel_case(novel_dict))
+            result.append(novel_dict)
         return result
     except Exception as e:
         logger.error(f"获取小说列表失败: {str(e)}", exc_info=True)
@@ -453,7 +453,7 @@ async def get_novel(
             "updated_at": f.updated_at
         } for f in novel.foreshadowings]
     }
-    return convert_to_camel_case(novel_dict)
+    return novel_dict
 
 @app.post("/api/novels", response_model=NovelResponse)
 async def create_novel(
