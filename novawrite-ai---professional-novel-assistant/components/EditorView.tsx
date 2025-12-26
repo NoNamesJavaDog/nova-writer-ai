@@ -120,40 +120,40 @@ const EditorView: React.FC<EditorViewProps> = ({
   const hasNextChapter = activeChapterIdx !== null && activeChapterIdx < chapters.length - 1;
   const nextChapterIndex = activeChapterIdx !== null ? activeChapterIdx + 1 : null;
 
-  // 澶嶅埗绔犺妭鍐呭鍒板壀璐存澘
+  // Copy chapter content to clipboard.
   const handleCopyChapter = async () => {
     if (!currentChapter || !currentChapter.content) {
-      alert('褰撳墠绔犺妭娌℃湁鍐呭鍙鍒?);
+      alert('No chapter content to copy.');
       return;
     }
 
     try {
       await navigator.clipboard.writeText(currentChapter.content);
-      addLog('success', '鉁?绔犺妭鍐呭宸插鍒跺埌鍓创鏉?);
-      // 鏄剧ず涓€涓复鏃舵彁绀?      const originalTitle = document.title;
-      document.title = '鉁?宸插鍒?;
+      addLog('success', 'Chapter content copied.');
+      const originalTitle = document.title;
+      document.title = 'Copied';
       setTimeout(() => {
         document.title = originalTitle;
       }, 1000);
     } catch (err: any) {
-      console.error('澶嶅埗澶辫触:', err);
-      addLog('error', `鉂?澶嶅埗澶辫触: ${err?.message || '鏈煡閿欒'}`);
-      alert('澶嶅埗澶辫触锛岃鎵嬪姩澶嶅埗鍐呭');
+      console.error('Copy failed:', err);
+      addLog('error', `Copy failed: ${err?.message || 'Unknown error'}`);
+      alert('Copy failed, please copy manually.');
     }
   };
 
-  // 娣诲姞鏂扮珷鑺?  const handleAddChapter = () => {
+  // Add a new chapter.
+  const handleAddChapter = () => {
     const currentVolumes = [...novel.volumes];
     const newChapter: Chapter = {
       id: `ch-${Date.now()}`,
-      title: `鏂扮珷鑺?${chapters.length + 1}`,
+      title: `Chapter ${chapters.length + 1}`,
       summary: '',
       aiPromptHints: '',
       content: ''
     };
     currentVolumes[activeVolumeIdx].chapters = [...chapters, newChapter];
     updateNovel({ volumes: currentVolumes });
-    // 鍒囨崲鍒版柊绔犺妭
     setActiveChapterIdx(chapters.length);
   };
 
