@@ -451,36 +451,41 @@ async def create_novel(
     db: Session = Depends(get_db)
 ):
     """创建新小说"""
-    novel = Novel(
-        id=generate_uuid(),
-        user_id=current_user.id,
-        title=novel_data.title,
-        genre=novel_data.genre,
-        synopsis=novel_data.synopsis or "",
-        full_outline=novel_data.full_outline or "",
-        created_at=int(time.time() * 1000),
-        updated_at=int(time.time() * 1000)
-    )
-    db.add(novel)
-    db.commit()
-    db.refresh(novel)
-    
-    novel_dict = {
-        "id": novel.id,
-        "user_id": novel.user_id,
-        "title": novel.title,
-        "genre": novel.genre,
-        "synopsis": novel.synopsis or "",
-        "full_outline": novel.full_outline or "",
-        "created_at": novel.created_at,
-        "updated_at": novel.updated_at,
-        "volumes": [],
-        "characters": [],
-        "world_settings": [],
-        "timeline_events": [],
-        "foreshadowings": []
-    }
-    return convert_to_camel_case(novel_dict)
+    try:
+        novel = Novel(
+            id=generate_uuid(),
+            user_id=current_user.id,
+            title=novel_data.title,
+            genre=novel_data.genre,
+            synopsis=novel_data.synopsis or "",
+            full_outline=novel_data.full_outline or "",
+            created_at=int(time.time() * 1000),
+            updated_at=int(time.time() * 1000)
+        )
+        db.add(novel)
+        db.commit()
+        db.refresh(novel)
+        
+        novel_dict = {
+            "id": novel.id,
+            "user_id": novel.user_id,
+            "title": novel.title,
+            "genre": novel.genre,
+            "synopsis": novel.synopsis or "",
+            "full_outline": novel.full_outline or "",
+            "created_at": novel.created_at,
+            "updated_at": novel.updated_at,
+            "volumes": [],
+            "characters": [],
+            "world_settings": [],
+            "timeline_events": [],
+            "foreshadowings": []
+        }
+        return convert_to_camel_case(novel_dict)
+    except Exception as e:
+        logger.error(f"创建小说失败: {str(e)}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"创建小说失败: {str(e)}")
 
 @app.put("/api/novels/{novel_id}", response_model=NovelResponse)
 async def update_novel(

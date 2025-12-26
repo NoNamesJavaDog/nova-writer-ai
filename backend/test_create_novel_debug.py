@@ -4,7 +4,7 @@ import traceback
 from fastapi.testclient import TestClient
 from main import app
 
-client = TestClient(app)
+client = TestClient(app=app)
 
 try:
     # 注册用户
