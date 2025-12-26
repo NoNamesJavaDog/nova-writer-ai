@@ -2502,44 +2502,7 @@ async def polish_text(
 
 # ==================== 任务路由 ====================
 
-@app.get("/api/tasks/{task_id}", response_model=TaskResponse)
-async def get_task(
-    task_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """获取任务状态"""
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.user_id == current_user.id
-    ).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    
-    # 解析 result
-    result = None
-    if task.result:
-        try:
-            result = json.loads(task.result)
-        except:
-            result = task.result
-    
-    task_dict = {
-        "id": task.id,
-        "novel_id": task.novel_id,
-        "task_type": task.task_type,
-        "status": task.status,
-        "progress": task.progress,
-        "progress_message": task.progress_message,
-        "result": result,
-        "error_message": task.error_message,
-        "created_at": task.created_at,
-        "updated_at": task.updated_at,
-        "started_at": task.started_at,
-        "completed_at": task.completed_at
-    }
-    return convert_to_camel_case(task_dict)
-
+# 注意：必须将具体路径放在参数路径之前，否则会被参数路径匹配
 @app.get("/api/tasks/active", response_model=List[TaskResponse])
 async def get_active_tasks(
     current_user: User = Depends(get_current_user),
