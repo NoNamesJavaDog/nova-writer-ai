@@ -2543,7 +2543,7 @@ async def get_active_tasks(
             "started_at": task.started_at,
             "completed_at": task.completed_at
         }
-        result.append(convert_to_camel_case(task_dict))
+        result.append(task_dict)
     return result
 
 @app.get("/api/tasks/novel/{novel_id}", response_model=List[TaskResponse])
@@ -2590,7 +2590,7 @@ async def get_novel_tasks(
             "started_at": task.started_at,
             "completed_at": task.completed_at
         }
-        result.append(convert_to_camel_case(task_dict))
+        result.append(task_dict)
     return result
 
 # ==================== 健康检查 ====================
