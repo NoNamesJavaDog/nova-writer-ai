@@ -291,7 +291,7 @@ async def get_novels(
                 "full_outline": novel.full_outline or "",
                 "created_at": novel.created_at,
                 "updated_at": novel.updated_at,
-                "volumes": [{
+                "volumes": sorted([{
                     "id": v.id,
                     "novel_id": v.novel_id,
                     "title": v.title,
@@ -300,7 +300,7 @@ async def get_novels(
                     "volume_order": v.volume_order,
                     "created_at": v.created_at,
                     "updated_at": v.updated_at,
-                    "chapters": [{
+                    "chapters": sorted([{
                         "id": c.id,
                         "volume_id": c.volume_id,
                         "title": c.title,
@@ -310,8 +310,8 @@ async def get_novels(
                         "chapter_order": c.chapter_order,
                         "created_at": c.created_at,
                         "updated_at": c.updated_at
-                    } for c in v.chapters]
-                } for v in novel.volumes],
+                    } for c in v.chapters], key=lambda x: x["chapter_order"])
+                } for v in novel.volumes], key=lambda x: x["volume_order"]),
                 "characters": [{
                     "id": c.id,
                     "novel_id": c.novel_id,
@@ -869,8 +869,13 @@ async def get_volumes(
     if not novel:
         raise HTTPException(status_code=404, detail="小说不存在")
     
+    # 按 volume_order 排序
+    volumes = sorted(novel.volumes, key=lambda v: v.volume_order)
+    
     result = []
-    for volume in novel.volumes:
+    for volume in volumes:
+        # 按 chapter_order 排序章节
+        chapters = sorted(volume.chapters, key=lambda c: c.chapter_order)
         volume_dict = {
             "id": volume.id,
             "novel_id": volume.novel_id,
@@ -890,7 +895,7 @@ async def get_volumes(
                 "chapter_order": c.chapter_order,
                 "created_at": c.created_at,
                 "updated_at": c.updated_at
-            } for c in volume.chapters]
+            } for c in chapters]
         }
         result.append(convert_to_camel_case(volume_dict))
     return result
