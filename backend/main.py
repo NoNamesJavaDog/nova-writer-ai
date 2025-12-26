@@ -5,7 +5,7 @@ NovaWrite AI 后端主应用
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_
 from typing import List, Optional, Dict, Any
 import time
@@ -273,83 +273,89 @@ async def get_novels(
 ):
     """获取用户的所有小说"""
     try:
-        novels = db.query(Novel).filter(Novel.user_id == current_user.id).order_by(Novel.updated_at.desc()).all()
+        novels = db.query(Novel).options(
+            joinedload(Novel.volumes).joinedload(Volume.chapters),
+            joinedload(Novel.characters),
+            joinedload(Novel.world_settings),
+            joinedload(Novel.timeline_events),
+            joinedload(Novel.foreshadowings)
+        ).filter(Novel.user_id == current_user.id).order_by(Novel.updated_at.desc()).all()
         result = []
         for novel in novels:
             novel_dict = {
-            "id": novel.id,
-            "user_id": novel.user_id,
-            "title": novel.title,
-            "genre": novel.genre,
-            "synopsis": novel.synopsis or "",
-            "full_outline": novel.full_outline or "",
-            "created_at": novel.created_at,
-            "updated_at": novel.updated_at,
-            "volumes": [{
-                "id": v.id,
-                "novel_id": v.novel_id,
-                "title": v.title,
-                "summary": v.summary or "",
-                "outline": v.outline or "",
-                "volume_order": v.volume_order,
-                "created_at": v.created_at,
-                "updated_at": v.updated_at,
-                "chapters": [{
+                "id": novel.id,
+                "user_id": novel.user_id,
+                "title": novel.title,
+                "genre": novel.genre,
+                "synopsis": novel.synopsis or "",
+                "full_outline": novel.full_outline or "",
+                "created_at": novel.created_at,
+                "updated_at": novel.updated_at,
+                "volumes": [{
+                    "id": v.id,
+                    "novel_id": v.novel_id,
+                    "title": v.title,
+                    "summary": v.summary or "",
+                    "outline": v.outline or "",
+                    "volume_order": v.volume_order,
+                    "created_at": v.created_at,
+                    "updated_at": v.updated_at,
+                    "chapters": [{
+                        "id": c.id,
+                        "volume_id": c.volume_id,
+                        "title": c.title,
+                        "summary": c.summary or "",
+                        "content": c.content or "",
+                        "ai_prompt_hints": c.ai_prompt_hints or "",
+                        "chapter_order": c.chapter_order,
+                        "created_at": c.created_at,
+                        "updated_at": c.updated_at
+                    } for c in v.chapters]
+                } for v in novel.volumes],
+                "characters": [{
                     "id": c.id,
-                    "volume_id": c.volume_id,
-                    "title": c.title,
-                    "summary": c.summary or "",
-                    "content": c.content or "",
-                    "ai_prompt_hints": c.ai_prompt_hints or "",
-                    "chapter_order": c.chapter_order,
+                    "novel_id": c.novel_id,
+                    "name": c.name,
+                    "age": c.age or "",
+                    "role": c.role or "",
+                    "personality": c.personality or "",
+                    "background": c.background or "",
+                    "goals": c.goals or "",
+                    "character_order": c.character_order,
                     "created_at": c.created_at,
                     "updated_at": c.updated_at
-                } for c in v.chapters]
-            } for v in novel.volumes],
-            "characters": [{
-                "id": c.id,
-                "novel_id": c.novel_id,
-                "name": c.name,
-                "age": c.age or "",
-                "role": c.role or "",
-                "personality": c.personality or "",
-                "background": c.background or "",
-                "goals": c.goals or "",
-                "character_order": c.character_order,
-                "created_at": c.created_at,
-                "updated_at": c.updated_at
-            } for c in novel.characters],
-            "world_settings": [{
-                "id": w.id,
-                "novel_id": w.novel_id,
-                "title": w.title,
-                "description": w.description,
-                "category": w.category,
-                "setting_order": w.setting_order,
-                "created_at": w.created_at,
-                "updated_at": w.updated_at
-            } for w in novel.world_settings],
-            "timeline_events": [{
-                "id": t.id,
-                "novel_id": t.novel_id,
-                "time": t.time,
-                "event": t.event,
-                "impact": t.impact or "",
-                "event_order": t.event_order,
-                "created_at": t.created_at,
-                "updated_at": t.updated_at
-            } for t in novel.timeline_events],
-            "foreshadowings": [{
-                "id": f.id,
-                "novel_id": f.novel_id,
-                "content": f.content,
-                "chapter_id": f.chapter_id,
-                "resolved_chapter_id": f.resolved_chapter_id,
-                "is_resolved": f.is_resolved,
-                "foreshadowing_order": f.foreshadowing_order,
-                "created_at": f.created_at,
-                "updated_at": f.updated_at
-            } for f in novel.foreshadowings]
+                } for c in novel.characters],
+                "world_settings": [{
+                    "id": w.id,
+                    "novel_id": w.novel_id,
+                    "title": w.title,
+                    "description": w.description,
+                    "category": w.category,
+                    "setting_order": w.setting_order,
+                    "created_at": w.created_at,
+                    "updated_at": w.updated_at
+                } for w in novel.world_settings],
+                "timeline_events": [{
+                    "id": t.id,
+                    "novel_id": t.novel_id,
+                    "time": t.time,
+                    "event": t.event,
+                    "impact": t.impact or "",
+                    "event_order": t.event_order,
+                    "created_at": t.created_at,
+                    "updated_at": t.updated_at
+                } for t in novel.timeline_events],
+                "foreshadowings": [{
+                    "id": f.id,
+                    "novel_id": f.novel_id,
+                    "content": f.content,
+                    "chapter_id": f.chapter_id,
+                    "resolved_chapter_id": f.resolved_chapter_id,
+                    "is_resolved": f.is_resolved,
+                    "foreshadowing_order": f.foreshadowing_order,
+                    "created_at": f.created_at,
+                    "updated_at": f.updated_at
+                } for f in novel.foreshadowings]
             }
             result.append(convert_to_camel_case(novel_dict))
         return result

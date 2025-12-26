@@ -465,8 +465,16 @@ export const novelApi = {
   // 旧版同步方法（已废弃，保留用于兼容）
   syncFull_old: async (novel: Novel): Promise<Novel> => {
     try {
-      // 1. 更新基本信息
-      await novelApi.update(novel.id, novel);
+      // 1. 更新基本信息 - 直接调用 API 避免循环引用
+      await apiRequest<any>(`/api/novels/${novel.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          title: novel.title,
+          genre: novel.genre,
+          synopsis: novel.synopsis,
+          full_outline: novel.fullOutline,
+        }),
+      });
       
       // 2. 同步卷和章节（简化：只更新存在的，新增的通过批量API处理）
       const existingVolumes = (await volumeApi.getAll(novel.id)) || [];
@@ -660,8 +668,9 @@ export const novelApi = {
         await foreshadowingApi.create(novel.id, foreshadowingsToCreate);
       }
       
-      // 返回最新的小说数据
-      return novelApi.getById(novel.id);
+      // 返回最新的小说数据 - 直接调用 API 避免循环引用
+      const response = await apiRequest<any>(`/api/novels/${novel.id}`);
+      return apiToNovel(response);
     } catch (error) {
       console.error('同步小说失败:', error);
       throw error;
