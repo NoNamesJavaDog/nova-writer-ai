@@ -92,10 +92,10 @@ const EditorView: React.FC<EditorViewProps> = ({
     };
   }, []);
 
-  // 调试：监听菜单状态变化
+  // Debug: log menu visibility changes.
   useEffect(() => {
     if (showMobileChapterMenu) {
-      console.log("✅ 菜单应该显示了，showMobileChapterMenu:", showMobileChapterMenu);
+      console.log("Menu visible", showMobileChapterMenu);
     }
   }, [showMobileChapterMenu]);
   // 浣跨敤鍘熺敓DOM浜嬩欢浣滀负鏈€鍚庣殑澶囩敤鏂规
@@ -103,6 +103,7 @@ const EditorView: React.FC<EditorViewProps> = ({
     const btn = document.getElementById('mobile-chapter-select-btn');
     if (btn) {
       const handleClick = () => {
+        console.log('鉁呪渽鉁?鍘熺敓DOM鐐瑰嚮浜嬩欢瑙﹀彂锛?);
         setShowMobileChapterMenu(prev => !prev);
       };
       btn.addEventListener('click', handleClick);
@@ -818,7 +819,6 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
         </div>
       </div>
 
-      </div>
       
       <div className="flex-1 flex flex-col bg-white min-w-0 relative">
         
