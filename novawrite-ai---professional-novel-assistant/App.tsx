@@ -1,6 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Novel, AppView, Character, WorldSetting, TimelineEvent, Volume, Chapter, User } from './types';
+// 先导入类型，避免循环依赖
+import type { Novel, AppView, Character, WorldSetting, TimelineEvent, Volume, Chapter, User } from './types';
+// 先导入服务，避免在组件初始化时执行
+import { getCurrentUser, logout, refreshCurrentUser } from './services/authService';
+import { novelApi, currentNovelApi, setOnTokenExpired } from './services/apiService';
+// 然后导入组件
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import Dashboard from './components/Dashboard';
@@ -13,8 +18,6 @@ import ForeshadowingView from './components/ForeshadowingView';
 import NovelManager from './components/NovelManager';
 import Login from './components/Login';
 import UserSettings from './components/UserSettings';
-import { getCurrentUser, logout, refreshCurrentUser } from './services/authService';
-import { novelApi, currentNovelApi, setOnTokenExpired } from './services/apiService';
 import { BookText, PenTool, Users, Globe, History, LayoutDashboard, BookOpen, ChevronDown, User as UserIcon, LogOut, Settings, Menu } from 'lucide-react';
 
 const INITIAL_NOVEL: Novel = {
