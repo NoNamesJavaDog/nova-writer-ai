@@ -339,9 +339,17 @@ def write_chapter_content_stream(
         
         for chunk in stream:
             if chunk.text:
-                yield chunk.text
+                # 按照 SSE 格式返回数据
+                data = json.dumps({"chunk": chunk.text})
+                yield f"data: {data}\n\n"
+        
+        # 发送完成信号
+        yield f"data: {json.dumps({'done': True})}\n\n"
                 
     except Exception as e:
+        # 发送错误信息
+        error_data = json.dumps({"error": str(e)})
+        yield f"data: {error_data}\n\n"
         raise Exception(f"生成章节内容失败: {str(e)}")
 
 
