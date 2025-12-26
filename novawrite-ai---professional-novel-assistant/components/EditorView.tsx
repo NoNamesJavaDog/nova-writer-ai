@@ -92,12 +92,12 @@ const EditorView: React.FC<EditorViewProps> = ({
     };
   }, []);
 
-  // 璋冭瘯锛氱洃鍚彍鍗曠姸鎬佸彉鍖?  useEffect(() => {
+  // 调试：监听菜单状态变化
+  useEffect(() => {
     if (showMobileChapterMenu) {
-      console.log('鉁?鑿滃崟搴旇鏄剧ず浜嗭紝showMobileChapterMenu:', showMobileChapterMenu);
+      console.log("✅ 菜单应该显示了，showMobileChapterMenu:", showMobileChapterMenu);
     }
   }, [showMobileChapterMenu]);
-
   // 浣跨敤鍘熺敓DOM浜嬩欢浣滀负鏈€鍚庣殑澶囩敤鏂规
   useEffect(() => {
     const btn = document.getElementById('mobile-chapter-select-btn');
