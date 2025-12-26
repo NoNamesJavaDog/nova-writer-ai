@@ -1,3 +1,11 @@
+// 用户相关类型（放在最前面，避免循环依赖）
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: number;
+  lastLoginAt?: number;
+}
 
 export interface Character {
   id: string;
@@ -62,15 +70,6 @@ export interface Novel {
 }
 
 export type AppView = 'dashboard' | 'outline' | 'writing' | 'characters' | 'world' | 'timeline' | 'foreshadowings';
-
-// 用户相关类型
-export interface User {
-  id: string;
-  username: string;
-  email: string;
-  createdAt: number;
-  lastLoginAt?: number;
-}
 
 export interface AuthState {
   user: User | null;
