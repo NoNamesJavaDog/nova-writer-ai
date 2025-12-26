@@ -138,9 +138,17 @@ def generate_volume_outline_stream(
         
         for chunk in stream:
             if chunk.text:
-                yield chunk.text
+                # 按照 SSE 格式返回数据
+                data = json.dumps({"chunk": chunk.text})
+                yield f"data: {data}\n\n"
+        
+        # 发送完成信号
+        yield f"data: {json.dumps({'done': True})}\n\n"
                 
     except Exception as e:
+        # 发送错误信息
+        error_data = json.dumps({"error": str(e)})
+        yield f"data: {error_data}\n\n"
         raise Exception(f"生成卷大纲失败: {str(e)}")
 
 
