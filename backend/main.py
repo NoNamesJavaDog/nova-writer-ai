@@ -2546,6 +2546,43 @@ async def get_active_tasks(
         result.append(task_dict)
     return result
 
+@app.get("/api/tasks/{task_id}", response_model=TaskResponse)
+async def get_task_by_id(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取单个任务详情"""
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.user_id == current_user.id
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    result_data = None
+    if task.result:
+        try:
+            result_data = json.loads(task.result)
+        except:
+            result_data = task.result
+    
+    task_dict = {
+        "id": task.id,
+        "novel_id": task.novel_id,
+        "task_type": task.task_type,
+        "status": task.status,
+        "progress": task.progress,
+        "progress_message": task.progress_message,
+        "result": result_data,
+        "error_message": task.error_message,
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+        "started_at": task.started_at,
+        "completed_at": task.completed_at
+    }
+    return task_dict
+
 @app.get("/api/tasks/novel/{novel_id}", response_model=List[TaskResponse])
 async def get_novel_tasks(
     novel_id: str,
