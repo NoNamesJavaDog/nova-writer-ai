@@ -103,7 +103,6 @@ const EditorView: React.FC<EditorViewProps> = ({
     const btn = document.getElementById('mobile-chapter-select-btn');
     if (btn) {
       const handleClick = () => {
-        console.log('鉁呪渽鉁?鍘熺敓DOM鐐瑰嚮浜嬩欢瑙﹀彂锛?);
         setShowMobileChapterMenu(prev => !prev);
       };
       btn.addEventListener('click', handleClick);
