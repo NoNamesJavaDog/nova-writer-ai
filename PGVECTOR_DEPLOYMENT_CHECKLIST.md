@@ -246,3 +246,4 @@ sudo apt-get install postgresql-14-pgvector  # 根据版本调整
 - **测试指南**：`TEST_VECTOR_FEATURES.md`
 - **功能清单**：`PGVECTOR_ALL_FEATURES.md`
 
+

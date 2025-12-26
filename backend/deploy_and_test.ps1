@@ -266,3 +266,4 @@ Write-Host "4. 开始使用向量数据库功能！"
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Cyan
 
+

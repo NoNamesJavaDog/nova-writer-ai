@@ -346,3 +346,4 @@ sudo apt-get install postgresql-14-pgvector  # 根据版本调整
 3. 参考相关文档
 4. 检查配置是否正确
 
+

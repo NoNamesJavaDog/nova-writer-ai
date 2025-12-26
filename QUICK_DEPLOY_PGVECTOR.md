@@ -98,3 +98,4 @@ ssh root@66.154.108.62 -p 22 "journalctl -u novawrite-backend -n 50"
 3. **依赖是否安装**：`pip list | grep pgvector`
 4. **数据库扩展**：`psql -c "SELECT * FROM pg_extension WHERE extname='vector';"`
 
+

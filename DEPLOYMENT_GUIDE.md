@@ -180,3 +180,4 @@ python test_all_remote.py
 - 查看 `PGVECTOR_DEPLOYMENT_CHECKLIST.md` 了解部署检查清单
 - 查看各测试脚本的输出了解详细错误信息
 
+

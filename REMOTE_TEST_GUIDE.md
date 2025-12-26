@@ -112,3 +112,4 @@ pip install pgvector --no-cache-dir
 - Redis是可选的，失败不影响核心功能
 - 缓存功能会自动禁用
 
+

@@ -44,3 +44,4 @@
 - **任务状态**：`PGVECTOR_TODO_FINAL.md`
 - **完整方案**：`PGVECTOR_INTEGRATION_PLAN.md`
 
+

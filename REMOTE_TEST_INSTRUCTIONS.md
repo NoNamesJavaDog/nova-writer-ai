@@ -210,3 +210,4 @@ python migrate_add_pgvector.py
 - **快速开始**：`PGVECTOR_QUICK_START.md`
 - **部署清单**：`PGVECTOR_DEPLOYMENT_CHECKLIST.md`
 
+

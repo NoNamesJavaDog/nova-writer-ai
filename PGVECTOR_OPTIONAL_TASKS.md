@@ -461,3 +461,4 @@ similar = service.find_similar_chapters(
 - **使用指南**：`PGVECTOR_README.md`
 - **性能测试**：`TEST_PERFORMANCE.md`
 
+

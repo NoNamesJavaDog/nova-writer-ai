@@ -103,3 +103,4 @@ similar = service.find_similar_chapters(
 - **功能测试**：`TEST_VECTOR_FEATURES.md`
 - **测试指南**：`TEST_EMBEDDING.md`
 
+

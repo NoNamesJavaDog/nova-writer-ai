@@ -116,3 +116,4 @@ A: 运行 `test_embedding_simple.py` 检查 API 调用方式
 **Q: 性能慢？**
 A: 确保使用后台任务，不要阻塞主流程
 
+

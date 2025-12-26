@@ -98,3 +98,4 @@ print(f"向量维度: {len(embedding)}")  # 应该是 768
 - **原因**：API 返回的向量维度与数据库表定义不一致
 - **解决**：检查 `embedding_service.py` 中的 `self.dimension` 值
 
+

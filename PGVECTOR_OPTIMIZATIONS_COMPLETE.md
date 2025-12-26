@@ -252,3 +252,4 @@ processor = BatchEmbeddingProcessor(
 - **使用指南**：`PGVECTOR_README.md`
 - **测试指南**：`TEST_PERFORMANCE.md`
 
+

@@ -41,3 +41,4 @@ def setup_logging(level=logging.INFO):
     logging.getLogger('services.content_similarity_checker').setLevel(level)
     logging.getLogger('services.vector_helper').setLevel(level)
 
+

@@ -146,3 +146,4 @@ echo "4. 查看日志："
 echo "   ssh $SERVER 'journalctl -u novawrite-backend -f'"
 echo ""
 
+

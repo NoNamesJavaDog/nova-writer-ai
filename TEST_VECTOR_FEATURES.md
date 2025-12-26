@@ -158,3 +158,4 @@ print(f"向量生成耗时: {elapsed:.2f}秒")
 - **使用指南**：`PGVECTOR_README.md`
 - **快速开始**：`PGVECTOR_QUICK_START.md`
 
+

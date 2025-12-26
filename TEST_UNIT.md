@@ -75,3 +75,4 @@ class TestEmbeddingService(unittest.TestCase):
 - **性能测试**：`TEST_PERFORMANCE.md`
 - **功能测试**：`TEST_VECTOR_FEATURES.md`
 
+

@@ -297,3 +297,4 @@ def batch_generate_embeddings(
         for r in results
     ]
 
+

@@ -104,3 +104,4 @@ python test_embedding_simple.py
    embedding = model.encode(text)
    ```
 
+

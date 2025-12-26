@@ -230,3 +230,4 @@ print("3. 运行性能测试: python test_performance.py")
 print("4. 查看使用文档: PGVECTOR_README.md")
 print("=" * 60)
 
+

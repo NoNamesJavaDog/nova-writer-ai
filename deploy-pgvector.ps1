@@ -147,3 +147,4 @@ Write-Host "4. 查看日志："
 Write-Host "   ssh $SERVER -p $SERVER_PORT 'journalctl -u novawrite-backend -f'" -ForegroundColor Gray
 Write-Host ""
 
+
