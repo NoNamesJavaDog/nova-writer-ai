@@ -56,7 +56,7 @@ from pydantic import BaseModel
 from captcha import generate_captcha, verify_captcha, check_login_status
 from gemini_service import (
     generate_full_outline, generate_volume_outline_stream,
-    generate_chapter_outline, write_chapter_content_stream,
+    generate_chapter_outline as generate_chapter_outline_impl, write_chapter_content_stream,
     generate_characters, generate_world_settings, generate_timeline_events,
     generate_foreshadowings_from_outline, modify_outline_by_dialogue,
     extract_foreshadowings_from_chapter
@@ -1968,7 +1968,7 @@ async def generate_chapter_outline(
     current_user: User = Depends(get_current_user)
 ):
     """生成章节列表"""
-    chapters = generate_chapter_outline(
+    chapters = generate_chapter_outline_impl(
         novel_title=request.novel_title,
         genre=request.genre,
         full_outline=request.full_outline,
