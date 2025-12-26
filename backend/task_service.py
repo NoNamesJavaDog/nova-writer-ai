@@ -57,6 +57,11 @@ class TaskExecutor:
         future = self.executor.submit(self._execute_task, task_id, task_func)
         return future
     
+    def submit(self, task_func: Callable):
+        """直接提交任务函数到后台执行（用于已经在内部处理状态的任务）"""
+        future = self.executor.submit(task_func)
+        return future
+    
     def _execute_task(self, task_id: str, task_func: Callable):
         """执行任务并更新状态"""
         db = SessionLocal()
