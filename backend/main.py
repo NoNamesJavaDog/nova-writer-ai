@@ -387,7 +387,7 @@ async def get_novel(
         "full_outline": novel.full_outline or "",
         "created_at": novel.created_at,
         "updated_at": novel.updated_at,
-        "volumes": [{
+        "volumes": sorted([{
             "id": v.id,
             "novel_id": v.novel_id,
             "title": v.title,
@@ -396,7 +396,7 @@ async def get_novel(
             "volume_order": v.volume_order,
             "created_at": v.created_at,
             "updated_at": v.updated_at,
-            "chapters": [{
+            "chapters": sorted([{
                 "id": c.id,
                 "volume_id": c.volume_id,
                 "title": c.title,
@@ -406,8 +406,8 @@ async def get_novel(
                 "chapter_order": c.chapter_order,
                 "created_at": c.created_at,
                 "updated_at": c.updated_at
-            } for c in v.chapters]
-        } for v in novel.volumes],
+            } for c in v.chapters], key=lambda x: x["chapter_order"])
+        } for v in novel.volumes], key=lambda x: x["volume_order"]),
         "characters": [{
             "id": c.id,
             "novel_id": c.novel_id,
