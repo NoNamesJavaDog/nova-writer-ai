@@ -1,6 +1,37 @@
 // 用户认证服务 - 使用后端API
 import { User } from '../types';
-import type { LoginData, RegisterData, CaptchaResponse, LoginStatusResponse } from './apiService';
+
+// 类型定义（避免导入 apiService 的类型）
+type LoginData = {
+  username_or_email: string;
+  password: string;
+  captcha_id?: string;
+  captcha_code?: string;
+};
+
+type RegisterData = {
+  username: string;
+  email: string;
+  password: string;
+};
+
+type CaptchaResponse = {
+  captcha_id: string;
+  image: string;
+};
+
+type LoginStatusResponse = {
+  requires_captcha: boolean;
+  locked: boolean;
+  lock_message?: string;
+};
+
+type LoginResponse = {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  user: User;
+};
 
 // 延迟导入 authApi 以避免循环依赖
 let _authApi: typeof import('./apiService').authApi | null = null;
@@ -76,7 +107,7 @@ export const login = async (
   
   try {
     const authApi = await getAuthApi();
-    const response = await authApi.login(data);
+    const response: LoginResponse = await authApi.login(data);
     setCurrentUserCache(response.user);
     return response.user;
   } catch (error: any) {
