@@ -589,7 +589,7 @@ async def sync_novel(
         existing_volumes = {v.id: v for v in novel.volumes}
         volume_ids = {v.get("id") for v in volumes_data if v and v.get("id")}
         
-        for volume_data in volumes_data:
+        for volume_index, volume_data in enumerate(volumes_data):
             if not volume_data or not volume_data.get("id"):
                 continue
             volume_id = volume_data["id"]
@@ -600,6 +600,7 @@ async def sync_novel(
                 volume.title = volume_data.get("title", "")
                 volume.summary = volume_data.get("summary", "")
                 volume.outline = volume_data.get("outline", "")
+                volume.volume_order = volume_index
                 volume.updated_at = current_time
                 
                 # 同步章节
@@ -607,7 +608,7 @@ async def sync_novel(
                 existing_chapters = {c.id: c for c in volume.chapters}
                 chapter_ids = {c.get("id") for c in chapters_data if c and c.get("id")}
                 
-                for chapter_data in chapters_data:
+                for chapter_index, chapter_data in enumerate(chapters_data):
                     if not chapter_data or not chapter_data.get("id"):
                         continue
                     chapter_id = chapter_data["id"]
@@ -619,6 +620,7 @@ async def sync_novel(
                         chapter.summary = chapter_data.get("summary", "")
                         chapter.content = chapter_data.get("content", "")
                         chapter.ai_prompt_hints = chapter_data.get("aiPromptHints", "")
+                        chapter.chapter_order = chapter_index
                         chapter.updated_at = current_time
                         
                         # 异步存储向量
@@ -639,7 +641,7 @@ async def sync_novel(
                             summary=chapter_data.get("summary", ""),
                             content=chapter_data.get("content", ""),
                             ai_prompt_hints=chapter_data.get("aiPromptHints", ""),
-                            chapter_order=len(volume.chapters),
+                            chapter_order=chapter_index,
                             created_at=current_time,
                             updated_at=current_time
                         )
@@ -665,7 +667,7 @@ async def sync_novel(
                     title=volume_data.get("title", ""),
                     summary=volume_data.get("summary", ""),
                     outline=volume_data.get("outline", ""),
-                    volume_order=len(novel.volumes),
+                    volume_order=volume_index,
                     created_at=current_time,
                     updated_at=current_time
                 )
