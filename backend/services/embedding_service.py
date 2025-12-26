@@ -65,15 +65,31 @@ class EmbeddingService:
                 )
                 
                 # 提取向量
+                # EmbedContentResponse 可能包含 embedding 或 embeddings 属性
                 embedding = None
                 if hasattr(result, 'embedding'):
                     embedding = result.embedding
+                elif hasattr(result, 'embeddings') and isinstance(result.embeddings, list) and len(result.embeddings) > 0:
+                    # 如果返回多个向量（因为 contents 是列表），取第一个
+                    embedding = result.embeddings[0]
+                    # 如果第一个元素还有 embedding 属性
+                    if hasattr(embedding, 'embedding'):
+                        embedding = embedding.embedding
+                    elif hasattr(embedding, 'values'):
+                        embedding = embedding.values
                 elif isinstance(result, dict) and 'embedding' in result:
                     embedding = result['embedding']
+                elif isinstance(result, dict) and 'embeddings' in result:
+                    embeddings_list = result['embeddings']
+                    if isinstance(embeddings_list, list) and len(embeddings_list) > 0:
+                        embedding = embeddings_list[0]
                 elif isinstance(result, list):
-                    embedding = result
+                    embedding = result[0] if len(result) > 0 else None
                 
                 if embedding:
+                    # 确保是列表格式
+                    if not isinstance(embedding, list):
+                        embedding = list(embedding) if hasattr(embedding, '__iter__') else [embedding]
                     logger.debug(f"✅ 向量生成成功，维度: {len(embedding)}")
                     return embedding
                 else:
