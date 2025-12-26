@@ -272,9 +272,10 @@ async def get_novels(
     db: Session = Depends(get_db)
 ):
     """获取用户的所有小说"""
-    novels = db.query(Novel).filter(Novel.user_id == current_user.id).order_by(Novel.updated_at.desc()).all()
-    result = []
-    for novel in novels:
+    try:
+        novels = db.query(Novel).filter(Novel.user_id == current_user.id).order_by(Novel.updated_at.desc()).all()
+        result = []
+        for novel in novels:
         novel_dict = {
             "id": novel.id,
             "user_id": novel.user_id,
@@ -350,8 +351,12 @@ async def get_novels(
                 "updated_at": f.updated_at
             } for f in novel.foreshadowings]
         }
-        result.append(convert_to_camel_case(novel_dict))
-    return result
+            result.append(convert_to_camel_case(novel_dict))
+        return result
+    except Exception as e:
+        logger.error(f"获取小说列表失败: {str(e)}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"获取小说列表失败: {str(e)}")
 
 @app.get("/api/novels/{novel_id}", response_model=NovelResponse)
 async def get_novel(
