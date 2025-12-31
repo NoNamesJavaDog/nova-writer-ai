@@ -374,7 +374,7 @@ const App: React.FC = () => {
   const renderView = () => {
     switch (activeView) {
       case 'dashboard':
-        return <Dashboard novel={currentNovel} updateNovel={updateNovel} onStartWriting={() => setActiveView('outline')} />;
+        return <Dashboard novel={currentNovel} updateNovel={updateNovel} onStartWriting={() => setActiveView('outline')} loadNovels={loadNovels} />;
       case 'outline':
         return <OutlineView novel={currentNovel} updateNovel={updateNovel} />;
       case 'writing':
@@ -397,7 +397,7 @@ const App: React.FC = () => {
       case 'foreshadowings':
         return <ForeshadowingView novel={currentNovel} updateNovel={updateNovel} />;
       default:
-        return <Dashboard novel={currentNovel} updateNovel={updateNovel} onStartWriting={() => setActiveView('outline')} />;
+        return <Dashboard novel={currentNovel} updateNovel={updateNovel} onStartWriting={() => setActiveView('outline')} loadNovels={loadNovels} />;
     }
   };
 

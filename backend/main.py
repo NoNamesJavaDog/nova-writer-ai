@@ -2401,6 +2401,229 @@ async def extract_foreshadowings_from_chapter_endpoint(
     )
     return convert_to_camel_case(result)
 
+@app.post("/api/novels/{novel_id}/generate-complete-outline")
+async def generate_complete_outline(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    生成完整大纲（包括卷、角色、世界观、时间线、伏笔）并直接保存到数据库
+    前端只需要调用这一个接口，所有业务逻辑都在后端完成
+    """
+    # 验证小说存在
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.user_id == current_user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    
+    # 创建任务
+    task = create_task(
+        db=db,
+        novel_id=novel_id,
+        user_id=current_user.id,
+        task_type="generate_complete_outline",
+        task_data={
+            "title": novel.title,
+            "genre": novel.genre,
+            "synopsis": novel.synopsis
+        }
+    )
+    
+    # 在后台执行完整的大纲生成流程
+    def execute_complete_outline_generation():
+        task_db = SessionLocal()
+        try:
+            logger.info(f"开始生成完整大纲，任务ID: {task.id}，小说ID: {novel_id}")
+            
+            # 获取小说信息
+            novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
+            if not novel_obj:
+                raise Exception("小说不存在")
+            
+            current_time = int(time.time() * 1000)
+            
+            # 1. 生成完整大纲和卷结构（20%）
+            logger.info("步骤 1/6: 生成完整大纲和卷结构")
+            update_task_progress(task_db, task.id, 5, "正在生成完整大纲...")
+            outline_result = generate_full_outline(
+                title=novel_obj.title,
+                genre=novel_obj.genre,
+                synopsis=novel_obj.synopsis
+            )
+            
+            # 保存大纲
+            novel_obj.full_outline = outline_result.get("outline", "")
+            task_db.commit()
+            update_task_progress(task_db, task.id, 20, "大纲生成完成")
+            
+            # 保存卷结构
+            volumes_data = outline_result.get("volumes", [])
+            for idx, volume_data in enumerate(volumes_data):
+                volume = Volume(
+                    id=generate_uuid(),
+                    novel_id=novel_id,
+                    title=volume_data.get("title", f"第{idx+1}卷"),
+                    summary=volume_data.get("summary", ""),
+                    outline="",
+                    volume_order=idx,
+                    created_at=current_time,
+                    updated_at=current_time
+                )
+                task_db.add(volume)
+            task_db.commit()
+            
+            # 2. 生成角色（40%）
+            logger.info("步骤 2/6: 生成角色")
+            update_task_progress(task_db, task.id, 25, "正在生成角色...")
+            characters_result = generate_characters(
+                title=novel_obj.title,
+                genre=novel_obj.genre,
+                synopsis=novel_obj.synopsis,
+                outline=novel_obj.full_outline
+            )
+            
+            for idx, char_data in enumerate(characters_result.get("characters", [])):
+                character = Character(
+                    id=generate_uuid(),
+                    novel_id=novel_id,
+                    name=char_data.get("name", ""),
+                    age=char_data.get("age", ""),
+                    role=char_data.get("role", ""),
+                    personality=char_data.get("personality", ""),
+                    background=char_data.get("background", ""),
+                    goals=char_data.get("goals", ""),
+                    character_order=idx,
+                    created_at=current_time,
+                    updated_at=current_time
+                )
+                task_db.add(character)
+            task_db.commit()
+            update_task_progress(task_db, task.id, 40, "角色生成完成")
+            
+            # 3. 生成世界观（60%）
+            logger.info("步骤 3/6: 生成世界观")
+            update_task_progress(task_db, task.id, 45, "正在生成世界观...")
+            world_settings_result = generate_world_settings(
+                title=novel_obj.title,
+                genre=novel_obj.genre,
+                synopsis=novel_obj.synopsis,
+                outline=novel_obj.full_outline
+            )
+            
+            for idx, ws_data in enumerate(world_settings_result.get("worldSettings", [])):
+                world_setting = WorldSetting(
+                    id=generate_uuid(),
+                    novel_id=novel_id,
+                    title=ws_data.get("title", ""),
+                    description=ws_data.get("description", ""),
+                    category=ws_data.get("category", "其他"),
+                    setting_order=idx,
+                    created_at=current_time,
+                    updated_at=current_time
+                )
+                task_db.add(world_setting)
+            task_db.commit()
+            update_task_progress(task_db, task.id, 60, "世界观生成完成")
+            
+            # 4. 生成时间线（75%）
+            logger.info("步骤 4/6: 生成时间线")
+            update_task_progress(task_db, task.id, 65, "正在生成时间线...")
+            timeline_result = generate_timeline_events(
+                title=novel_obj.title,
+                genre=novel_obj.genre,
+                synopsis=novel_obj.synopsis,
+                outline=novel_obj.full_outline
+            )
+            
+            for idx, event_data in enumerate(timeline_result.get("events", [])):
+                timeline_event = TimelineEvent(
+                    id=generate_uuid(),
+                    novel_id=novel_id,
+                    time=event_data.get("time", ""),
+                    event=event_data.get("event", ""),
+                    impact=event_data.get("impact", ""),
+                    event_order=idx,
+                    created_at=current_time,
+                    updated_at=current_time
+                )
+                task_db.add(timeline_event)
+            task_db.commit()
+            update_task_progress(task_db, task.id, 75, "时间线生成完成")
+            
+            # 5. 生成伏笔（90%）
+            logger.info("步骤 5/6: 生成伏笔")
+            update_task_progress(task_db, task.id, 80, "正在生成伏笔...")
+            foreshadowings_result = generate_foreshadowings_from_outline(
+                title=novel_obj.title,
+                genre=novel_obj.genre,
+                synopsis=novel_obj.synopsis,
+                outline=novel_obj.full_outline
+            )
+            
+            for idx, foreshadowing_data in enumerate(foreshadowings_result.get("foreshadowings", [])):
+                foreshadowing = Foreshadowing(
+                    id=generate_uuid(),
+                    novel_id=novel_id,
+                    content=foreshadowing_data.get("content", ""),
+                    chapter_id=None,
+                    resolved_chapter_id=None,
+                    is_resolved="false",
+                    foreshadowing_order=idx,
+                    created_at=current_time,
+                    updated_at=current_time
+                )
+                task_db.add(foreshadowing)
+            task_db.commit()
+            update_task_progress(task_db, task.id, 90, "伏笔生成完成")
+            
+            # 6. 完成任务（100%）
+            logger.info("步骤 6/6: 完成")
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "completed"
+                task_obj.progress = 100
+                task_obj.result = json.dumps({
+                    "message": "完整大纲生成成功",
+                    "novel_id": novel_id
+                })
+                task_obj.completed_at = current_time
+                task_db.commit()
+            
+            logger.info(f"完整大纲生成完成，任务ID: {task.id}")
+            
+        except Exception as e:
+            logger.error(f"生成完整大纲失败: {str(e)}", exc_info=True)
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "failed"
+                task_obj.error_message = str(e)
+                task_obj.completed_at = int(time.time() * 1000)
+                task_db.commit()
+        finally:
+            task_db.close()
+    
+    # 提交后台任务
+    executor = get_task_executor()
+    executor.submit(execute_complete_outline_generation)
+    
+    return {
+        "task_id": task.id,
+        "status": "pending",
+        "message": "完整大纲生成任务已创建，正在后台执行"
+    }
+
+def update_task_progress(db: Session, task_id: str, progress: int, message: str):
+    """更新任务进度"""
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if task:
+        task.progress = progress
+        task.status = "processing" if progress < 100 else "completed"
+        db.commit()
+        logger.info(f"任务 {task_id} 进度更新: {progress}% - {message}")
+
 @app.post("/api/ai/modify-outline-by-dialogue", response_model=ModifyOutlineByDialogueResponse)
 async def modify_outline_by_dialogue_endpoint(
     request: ModifyOutlineByDialogueRequest,
