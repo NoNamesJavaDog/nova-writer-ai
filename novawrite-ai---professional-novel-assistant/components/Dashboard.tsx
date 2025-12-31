@@ -538,16 +538,35 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
       if (!isMountedRef.current) return;
       
       // 更新所有内容
+      addLog('info', '💾 正在保存数据到服务器...');
+      console.log('📊 准备同步的数据:', {
+        timelineCount: updates.timeline?.length || 0,
+        foreshadowingsCount: updates.foreshadowings?.length || 0,
+        hasTimeline: !!updates.timeline,
+        hasForeshadowings: !!updates.foreshadowings
+      });
+      
       await updateNovel(updates);
       
-      // 等待数据保存后重新加载小说以确保timeline和foreshadowings正确显示
-      addLog('info', '💾 正在保存数据到服务器...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 给服务器一些时间来处理数据
+      addLog('info', '⏳ 等待服务器处理数据...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
-      // 重新加载当前小说
+      // 重新加载当前小说以确保timeline和foreshadowings正确显示
+      if (!isMountedRef.current) return;
+      
       try {
+        addLog('info', '🔄 正在重新加载小说数据...');
         const { novelApi } = await import('../services/apiService');
         const freshNovel = await novelApi.get(novel.id!);
+        
+        console.log('📊 从服务器获取的数据:', {
+          timelineCount: freshNovel.timeline?.length || 0,
+          foreshadowingsCount: freshNovel.foreshadowings?.length || 0,
+          timeline: freshNovel.timeline,
+          foreshadowings: freshNovel.foreshadowings
+        });
+        
         updateNovel(freshNovel);
         addLog('success', '✅ 数据已从服务器同步！');
         
@@ -555,19 +574,24 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         addLog('info', `📊 验证结果：`);
         addLog('info', `   - 时间线事件: ${freshNovel.timeline?.length || 0} 个`);
         addLog('info', `   - 伏笔: ${freshNovel.foreshadowings?.length || 0} 个`);
+        
+        if (freshNovel.timeline?.length === 0 && freshNovel.foreshadowings?.length === 0) {
+          addLog('warning', '⚠️ 警告：从服务器获取的数据为空！');
+          addLog('warning', '⚠️ 请检查后端日志，确认数据是否保存成功');
+        }
       } catch (err: any) {
-        addLog('warning', `⚠️ 重新加载数据失败: ${err?.message || '未知错误'}`);
+        addLog('error', `❌ 重新加载数据失败: ${err?.message || '未知错误'}`);
+        console.error('重新加载失败:', err);
       }
       
       addLog('success', '🎉 所有内容生成完成！');
       addLog('info', '✨ 准备跳转到大纲页面...');
       
       // 延迟跳转，确保状态更新完成
-      setTimeout(() => {
-        if (isMountedRef.current) {
-          onStartWriting();
-        }
-      }, 1000);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (isMountedRef.current) {
+        onStartWriting();
+      }
     } catch (err: any) {
       if (!isMountedRef.current) return;
       
