@@ -44,15 +44,62 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         const taskService = await import('../services/taskService');
         const activeTasks = await taskService.getActiveTasks();
         
-        // 过滤出当前小说的运行中任务
-        const novelActiveTasks = activeTasks.filter(
-          task => task.novel_id === novel.id && task.status === 'running'
+        // 过滤出当前小说的大纲生成任务（运行中或等待中）
+        const outlineTask = activeTasks.find(
+          task => task.novel_id === novel.id && 
+                  task.task_type === 'generate_complete_outline' && 
+                  (task.status === 'running' || task.status === 'pending')
         );
         
-        if (novelActiveTasks.length > 0) {
-          // 如果有运行中的任务，显示提示
-          console.log(`发现 ${novelActiveTasks.length} 个正在执行的任务`);
-          // 可以在这里添加UI提示，让用户知道有任务正在运行
+        if (outlineTask) {
+          // 恢复UI状态
+          console.log(`🔄 发现正在执行的大纲生成任务: ${outlineTask.id}`);
+          setShowConsole(true);
+          setConsoleMinimized(false);
+          setLoading(true);
+          clearLogs();
+          addLog('info', '🔄 检测到正在进行的大纲生成任务');
+          addLog('info', `📋 任务ID: ${outlineTask.id}`);
+          addLog('info', `📊 当前进度: ${outlineTask.progress || 0}%`);
+          addLog('info', `💬 状态: ${outlineTask.progress_message || '处理中...'}`);
+          
+          // 继续轮询任务进度
+          const { startPolling } = taskService;
+          startPolling(outlineTask.id, {
+            onProgress: (task) => {
+              if (!isMountedRef.current) return;
+              const progress = task.progress || 0;
+              const message = task.progress_message || '处理中...';
+              addLog('info', `⏳ ${progress}% - ${message}`);
+            },
+            onComplete: async (task) => {
+              if (!isMountedRef.current) return;
+              addLog('success', '✅ 完整大纲生成完成！');
+              addLog('info', '🔄 正在从服务器加载最新数据...');
+              if (loadNovels) {
+                await loadNovels();
+              }
+              addLog('success', '✅ 数据加载完成！');
+              addLog('info', '📊 生成内容统计：');
+              addLog('info', `   - 完整大纲: ${novel.fullOutline ? '✓' : '✗'}`);
+              addLog('info', `   - 卷结构: ${novel.volumes?.length || 0} 个`);
+              addLog('info', `   - 角色: ${novel.characters?.length || 0} 个`);
+              addLog('info', `   - 世界观: ${novel.worldSettings?.length || 0} 个`);
+              addLog('info', `   - 时间线事件: ${novel.timeline?.length || 0} 个`);
+              addLog('info', `   - 伏笔: ${novel.foreshadowings?.length || 0} 个`);
+              addLog('success', '🎉 所有内容生成完成！');
+              addLog('info', '✨ 准备跳转到大纲页面...');
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              if (isMountedRef.current) {
+                onStartWriting();
+              }
+            },
+            onError: (task) => {
+              if (!isMountedRef.current) return;
+              addLog('error', `❌ 任务失败: ${task.error_message || '未知错误'}`);
+              setLoading(false);
+            },
+          });
         }
       } catch (error: any) {
         // 静默失败，不显示错误（可能是网络问题或认证问题）
@@ -77,6 +124,11 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
     console[consoleMethod](message);
   };
 
+  // 清空日志
+  const clearLogs = () => {
+    setLogs([]);
+  };
+
   // 追加流式内容到最后一个日志条目
   const appendStreamChunk = (chunk: string) => {
     if (!chunk) return;
@@ -96,11 +148,6 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         return [...prev, streamLog];
       }
     });
-  };
-
-  // 清空日志
-  const clearLogs = () => {
-    setLogs([]);
   };
 
   // 导出全文
