@@ -538,7 +538,27 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
       if (!isMountedRef.current) return;
       
       // 更新所有内容
-      updateNovel(updates);
+      await updateNovel(updates);
+      
+      // 等待数据保存后重新加载小说以确保timeline和foreshadowings正确显示
+      addLog('info', '💾 正在保存数据到服务器...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // 重新加载当前小说
+      try {
+        const { novelApi } = await import('../services/apiService');
+        const freshNovel = await novelApi.get(novel.id!);
+        updateNovel(freshNovel);
+        addLog('success', '✅ 数据已从服务器同步！');
+        
+        // 验证数据
+        addLog('info', `📊 验证结果：`);
+        addLog('info', `   - 时间线事件: ${freshNovel.timeline?.length || 0} 个`);
+        addLog('info', `   - 伏笔: ${freshNovel.foreshadowings?.length || 0} 个`);
+      } catch (err: any) {
+        addLog('warning', `⚠️ 重新加载数据失败: ${err?.message || '未知错误'}`);
+      }
+      
       addLog('success', '🎉 所有内容生成完成！');
       addLog('info', '✨ 准备跳转到大纲页面...');
       

@@ -9,6 +9,9 @@ interface TimelineViewProps {
 }
 
 const TimelineView: React.FC<TimelineViewProps> = ({ novel, updateNovel }) => {
+  // 确保timeline有默认值
+  const timeline = novel.timeline || [];
+  
   const addEvent = () => {
     const newEvent: TimelineEvent = {
       id: Date.now().toString(),
@@ -16,18 +19,18 @@ const TimelineView: React.FC<TimelineViewProps> = ({ novel, updateNovel }) => {
       event: '描述事件...',
       impact: '因此发生了什么变化？'
     };
-    updateNovel({ timeline: [...novel.timeline, newEvent] });
+    updateNovel({ timeline: [...timeline, newEvent] });
   };
 
   const updateEvent = (id: string, updates: Partial<TimelineEvent>) => {
     updateNovel({
-      timeline: novel.timeline.map(e => e.id === id ? { ...e, ...updates } : e)
+      timeline: timeline.map(e => e.id === id ? { ...e, ...updates } : e)
     });
   };
 
   const deleteEvent = (id: string) => {
     updateNovel({
-      timeline: novel.timeline.filter(e => e.id !== id)
+      timeline: timeline.filter(e => e.id !== id)
     });
   };
 
@@ -50,13 +53,13 @@ const TimelineView: React.FC<TimelineViewProps> = ({ novel, updateNovel }) => {
         <div className="absolute left-5 md:left-6 top-4 bottom-4 w-px bg-slate-200"></div>
         
         <div className="space-y-8">
-          {novel.timeline.length === 0 ? (
+          {timeline.length === 0 ? (
             <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-300 ml-12">
               <History className="text-slate-200 mx-auto mb-4" size={48} />
               <p className="text-slate-400 font-medium italic">尚未记录时间线事件。</p>
             </div>
           ) : (
-            novel.timeline.map((item, idx) => (
+            timeline.map((item, idx) => (
               <div key={item.id} className="relative pl-10 md:pl-14 group">
                 {/* Marker */}
                 <div className="absolute left-[14px] md:left-[18px] top-1 w-2.5 h-2.5 bg-indigo-600 rounded-full ring-4 ring-indigo-100 z-10"></div>
