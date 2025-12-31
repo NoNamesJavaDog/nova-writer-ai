@@ -101,7 +101,7 @@ class WorldSetting(Base):
     novel = relationship("Novel", back_populates="world_settings")
     
     __table_args__ = (
-        CheckConstraint("category IN ('地理', '社会', '魔法/科技', '历史', '其他')", name="check_category"),
+        CheckConstraint("category IN ('地理', '社会', '魔法/科技', '科技', '历史', '其他')", name="check_category"),
     )
 
 class TimelineEvent(Base):
