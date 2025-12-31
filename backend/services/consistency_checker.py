@@ -45,14 +45,14 @@ class ConsistencyChecker:
             # 构建查询文本（使用标题和摘要）
             query_text = f"{current_chapter_title} {current_chapter_summary}"
             
-            # 使用 embedding service 查找相似章节
+            # 使用 embedding service 查找相似章节（降低阈值以获取更多相关上下文）
             similar_chapters = self.embedding_service.find_similar_chapters(
                 db=db,
                 novel_id=novel_id,
                 query_text=query_text,
                 exclude_chapter_ids=exclude_chapter_ids,
                 limit=max_chapters,
-                similarity_threshold=0.6  # 较低阈值，以获取更多相关章节
+                similarity_threshold=0.5  # 降低阈值到0.5，获取更广泛的相关章节
             )
             
             return similar_chapters

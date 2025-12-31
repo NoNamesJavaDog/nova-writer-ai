@@ -25,7 +25,7 @@ class ContentSimilarityChecker:
         chapter_summary: str,
         existing_content: Optional[str] = None,
         exclude_chapter_ids: Optional[List[str]] = None,
-        similarity_threshold: float = 0.8
+        similarity_threshold: float = 0.7  # 降低阈值到0.7，更早发现潜在重复
     ) -> Dict:
         """
         在生成章节内容前检查相似度
@@ -46,21 +46,25 @@ class ContentSimilarityChecker:
             # 构建查询文本
             query_text = f"{chapter_title} {chapter_summary}"
             
-            # 查找相似章节
+            # 查找相似章节（降低阈值以获取更多候选，更全面检测重复风险）
             similar_chapters = self.embedding_service.find_similar_chapters(
                 db=db,
                 novel_id=novel_id,
                 query_text=query_text,
                 exclude_chapter_ids=exclude_chapter_ids,
-                limit=5,
-                similarity_threshold=similarity_threshold - 0.1  # 稍低的阈值以获取更多结果
+                limit=8,  # 增加检查数量
+                similarity_threshold=similarity_threshold - 0.15  # 更低的阈值以获取更多结果
             )
             
-            # 分析结果
+            # 分析结果（更细粒度的分类）
             high_similarity = [ch for ch in similar_chapters if ch["similarity"] >= similarity_threshold]
             medium_similarity = [
                 ch for ch in similar_chapters 
-                if similarity_threshold - 0.2 <= ch["similarity"] < similarity_threshold
+                if similarity_threshold - 0.15 <= ch["similarity"] < similarity_threshold
+            ]
+            low_similarity = [
+                ch for ch in similar_chapters
+                if similarity_threshold - 0.25 <= ch["similarity"] < similarity_threshold - 0.15
             ]
             
             warnings = []
@@ -68,26 +72,40 @@ class ContentSimilarityChecker:
             
             if high_similarity:
                 warnings.append(
-                    f"发现 {len(high_similarity)} 个高度相似的章节（相似度 >= {similarity_threshold}），"
-                    f"建议检查是否会生成重复内容。"
+                    f"⚠️ 发现 {len(high_similarity)} 个高度相似的章节（相似度 >= {similarity_threshold:.1f}）"
                 )
-                suggestions.append("考虑调整章节主题或摘要，使其更具独特性")
-                suggestions.append("查看相似章节，确保新章节有足够的差异化")
+                for ch in high_similarity[:3]:  # 列出前3个最相似的
+                    warnings.append(
+                        f"   - 《{ch.get('chapter_title', '未知')}》相似度: {ch['similarity']:.2f}"
+                    )
+                suggestions.append("🔍 强烈建议：查看上述相似章节，确保本章情节完全不同")
+                suggestions.append("💡 调整建议：修改章节主题、场景设置或角色互动方式")
             
             if medium_similarity:
+                warnings.append(
+                    f"ℹ️ 发现 {len(medium_similarity)} 个中等相似的章节（相似度 {similarity_threshold - 0.15:.1f}-{similarity_threshold:.1f}）"
+                )
+                suggestions.append("💡 建议在生成时明确区分与前文的差异，采用不同叙事手法")
+            
+            if low_similarity:
                 suggestions.append(
-                    f"有 {len(medium_similarity)} 个中等相似的章节，"
-                    f"建议在生成时强调与前文的差异"
+                    f"📊 参考信息：还有 {len(low_similarity)} 个略微相似的章节可作为背景参考"
                 )
             
             return {
                 "has_similar_content": len(high_similarity) > 0,
                 "high_similarity_chapters": high_similarity,
                 "medium_similarity_chapters": medium_similarity,
+                "low_similarity_chapters": low_similarity,
                 "all_similar_chapters": similar_chapters,
                 "warnings": warnings,
                 "suggestions": suggestions,
-                "recommendation": "继续生成" if not high_similarity else "建议审查后生成"
+                "similarity_summary": {
+                    "high": len(high_similarity),
+                    "medium": len(medium_similarity),
+                    "low": len(low_similarity)
+                },
+                "recommendation": "继续生成（注意差异化）" if not high_similarity else "⚠️ 建议仔细审查后生成"
             }
             
         except Exception as e:

@@ -274,7 +274,7 @@ def write_chapter_content_stream(
                     import logging
                     logging.getLogger(__name__).warning(f"⚠️  相似度检查失败（继续生成）: {str(e)}")
                 
-                # 获取智能上下文
+                # 获取智能上下文（增加到5章以提供更丰富的上下文，避免重复）
                 checker = ConsistencyChecker()
                 smart_context = checker.get_relevant_context_text(
                     db=db_session,
@@ -282,7 +282,7 @@ def write_chapter_content_stream(
                     current_chapter_title=chapter_title,
                     current_chapter_summary=chapter_summary,
                     exclude_chapter_ids=[current_chapter_id] if current_chapter_id else None,
-                    max_chapters=3
+                    max_chapters=5
                 )
                 
                 if smart_context and smart_context.strip():
@@ -294,39 +294,58 @@ def write_chapter_content_stream(
                 import logging
                 logging.getLogger(__name__).warning(f"⚠️  智能上下文检索失败，使用原始上下文: {str(e)}")
         
-        # 构建前文上下文部分
+        # 构建前文上下文部分（增强版，更强调避免重复）
         previous_context_section = ""
         if previous_chapters_context and previous_chapters_context.strip():
             previous_context_section = f"""
 
-前文内容摘要（最近几章）：
+【前文内容参考】（基于向量相似度智能推荐的相关章节）：
 {previous_chapters_context}
 
-重要提示：
-- 以上是前面章节的内容摘要，请仔细阅读以避免重复
-- 严格避免重复前面章节中已经详细描述过的情节、场景、对话模式
-- 如果必须提及前文内容，请使用简洁的过渡性描述，不要重复详细描写
-- 保持与前文的连贯性，但要在新章节中推进新的情节发展
-- 避免使用与前面章节相同的描写手法和表达方式
+🚨 【重复内容检查要求】- 必须严格遵守：
+1. ❌ 绝对禁止：重复前文中已经完整描述过的场景、事件、对话
+2. ❌ 绝对禁止：使用与前文相同的叙事结构、描写手法、语言风格
+3. ❌ 绝对禁止：让角色重复做过的事情或说过类似的话
+4. ✅ 正确做法：如需提及前文，仅用1-2句简短过渡，不展开描写
+5. ✅ 正确做法：本章必须推进全新情节，展现新的冲突和发展
+6. ✅ 正确做法：采用不同的叙述视角、情绪基调、描写重点
+7. ✅ 正确做法：确保本章有独特的核心事件，与前文明显区分
+
+⚠️ 注意：上述前文是通过AI语义分析自动推荐的最相关章节，请认真阅读并确保本章内容完全不同。
 """
         
         prompt = f"""请为小说《{novel_title}》创作一个完整的章节。
-章节标题：{chapter_title}
-情节摘要：{chapter_summary}
-写作提示：{chapter_prompt_hints}
 
-上下文：
-完整小说简介：{synopsis}
-涉及角色：{characters_text}
-世界观规则：{world_text}
+【章节基本信息】
+- 标题：{chapter_title}
+- 情节摘要：{chapter_summary}
+- 写作提示：{chapter_prompt_hints}
+
+【小说背景信息】
+- 完整简介：{synopsis}
+- 涉及角色：{characters_text}
+- 世界观规则：{world_text}
 {previous_context_section}
-重要字数要求：
-- 章节正文内容应该在5000-8000字之间
-- 确保内容充实，情节完整，有足够的细节描写和对话
-- 如果内容较多，可以适当扩展至8000字左右，但不要超过9000字
-- 如果内容较少，也要确保至少有5000字，通过增加细节描写、心理活动、环境描写等方式丰富内容
 
-请以高文学品质、沉浸式描述和引人入胜的对话来创作。仅输出章节正文内容。"""
+【创作要求】
+1. 字数要求：5000-8000字（正文内容，充实饱满）
+2. 情节要求：
+   - 必须完整推进本章情节，有明确的开端、发展、高潮、结尾
+   - 核心事件必须与前文不同，避免重复情节
+   - 确保本章有独特的戏剧冲突和情感张力
+3. 叙事要求：
+   - 采用高文学品质的沉浸式描述
+   - 对话要生动自然，符合角色性格
+   - 细节描写丰富（环境、心理、动作、神态）
+   - 叙事节奏张弛有度，避免平铺直叙
+4. 原创性要求：
+   - 场景设置必须新颖独特
+   - 角色互动方式要有变化
+   - 避免使用套路化的表达和桥段
+
+⚠️ 最重要：认真阅读【前文内容参考】，确保本章内容完全原创，不与前文重复！
+
+现在请开始创作，仅输出章节正文内容（不要输出标题）："""
         
         stream = client.models.generate_content_stream(
             model="gemini-3-pro-preview",

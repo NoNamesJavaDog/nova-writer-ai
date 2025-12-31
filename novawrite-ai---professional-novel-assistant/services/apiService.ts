@@ -625,6 +625,18 @@ export const chapterApi = {
       body: JSON.stringify(chapterIds),
     });
   },
+  
+  // 同步存储章节向量（阻塞直到完成）
+  storeEmbeddingSync: async (chapterId: string): Promise<{success: boolean; stored: boolean; message: string}> => {
+    const response = await apiRequest<any>(`/api/chapters/${chapterId}/store-embedding-sync`, {
+      method: 'POST',
+    });
+    return {
+      success: response.success || false,
+      stored: response.stored || false,
+      message: response.message || '',
+    };
+  },
 };
 
 // ==================== 角色相关 ====================

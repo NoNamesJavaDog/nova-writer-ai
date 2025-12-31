@@ -1185,6 +1185,59 @@ async def delete_chapter(
     db.commit()
     return {"message": "章节已删除"}
 
+@app.post("/api/chapters/{chapter_id}/store-embedding-sync")
+async def store_chapter_embedding_sync(
+    chapter_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    同步存储章节向量（阻塞直到完成）
+    用于批量生成时确保向量及时存储，避免后续章节缺少上下文
+    """
+    try:
+        # 验证章节权限
+        chapter = db.query(Chapter).join(Volume).join(Novel).filter(
+            Chapter.id == chapter_id,
+            Novel.user_id == current_user.id
+        ).first()
+        
+        if not chapter:
+            raise HTTPException(status_code=404, detail="章节不存在")
+        
+        if not chapter.content or not chapter.content.strip():
+            return {
+                "success": True,
+                "message": "章节内容为空，跳过向量存储",
+                "stored": False
+            }
+        
+        # 同步存储向量（直接调用，不使用后台任务）
+        from services.embedding_service import EmbeddingService
+        service = EmbeddingService()
+        
+        service.store_chapter_embedding(
+            db=db,
+            chapter_id=chapter.id,
+            novel_id=chapter.volume.novel_id,
+            content=chapter.content
+        )
+        
+        return {
+            "success": True,
+            "message": "章节向量存储成功",
+            "stored": True,
+            "chapter_id": chapter_id,
+            "content_length": len(chapter.content)
+        }
+        
+    except Exception as e:
+        logger.error(f"同步存储章节向量失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"向量存储失败: {str(e)}"
+        )
+
 # ==================== 角色路由 ====================
 
 @app.get("/api/novels/{novel_id}/characters", response_model=List[CharacterResponse])

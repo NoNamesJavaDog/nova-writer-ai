@@ -317,7 +317,7 @@ ${chapterCount ? `请为本卷生成 ${chapterCount} 个章节。` : `请仔细�
     }
   };
 
-  // 一键写作本卷所有章节
+  // 一键写作本卷所有章节（优化版：支持同步向量存储和智能延迟）
   const handleWriteAllChapters = async (volumeIndex: number) => {
     if (!novel.volumes || volumeIndex >= novel.volumes.length) {
       alert('卷信息无效');
@@ -351,14 +351,37 @@ ${chapterCount ? `请为本卷生成 ${chapterCount} 个章节。` : `请仔细�
     setConsoleMinimized(false);
     clearLogs();
     
+    // 新增：预热向量存储（为已有内容的章节）
+    if (chaptersWithContent > 0) {
+      addLog('step', '🔥 预热向量存储：为已有章节建立语义索引...');
+      const { chapterApi } = await import('../services/apiService');
+      let preheatedCount = 0;
+      for (let i = 0; i < volume.chapters.length; i++) {
+        const chapter = volume.chapters[i];
+        if (chapter.content && chapter.content.trim() && chapter.id) {
+          try {
+            await chapterApi.storeEmbeddingSync(chapter.id);
+            preheatedCount++;
+          } catch (err) {
+            // 预热失败不影响主流程，只记录日志
+            console.warn(`预热章节 ${i + 1} 向量失败:`, err);
+          }
+        }
+      }
+      addLog('success', `✅ 向量预热完成：已为 ${preheatedCount} 个章节建立语义索引`);
+      addLog('info', '💡 现在开始批量生成，AI将能够获取更准确的上下文');
+    }
+    
     try {
       addLog('step', `🚀 开始批量生成第 ${volumeIndex + 1} 卷《${volume.title}》的未写作章节...`);
       addLog('info', `📚 共 ${chaptersToWrite.length} 个章节需要生成（跳过 ${chaptersWithContent} 个已有内容的章节）`);
+      addLog('info', '🧠 智能延迟策略：前3章间隔3秒（建立上下文），后续章节间隔1.5秒');
       
       const updatedVolumes = [...novel.volumes];
       let successCount = 0;
       let failCount = 0;
       let skippedCount = 0;
+      const { chapterApi } = await import('../services/apiService');
       
       // 逐章生成（只生成没有内容的章节）
       for (let i = 0; i < volume.chapters.length; i++) {
@@ -381,7 +404,7 @@ ${chapterCount ? `请为本卷生成 ${chapterCount} 个章节。` : `请仔细�
           // 创建流式传输回调
           const onChunk = (chunk: string, isComplete: boolean) => {
             if (isComplete) {
-              addLog('success', `✅ 第 ${i + 1} 章生成完成！`);
+              addLog('success', `✅ 第 ${i + 1} 章内容生成完成！`);
             } else if (chunk) {
               appendStreamChunk(chunk);
             }
@@ -395,13 +418,31 @@ ${chapterCount ? `请为本卷生成 ${chapterCount} 个章节。` : `请仔细�
             updateNovel({ volumes: updatedVolumes });
             successCount++;
             addLog('info', `📄 第 ${i + 1} 章内容长度: ${content.length} 字符`);
+            
+            // 新增：同步存储向量（确保下一章能获取到上下文）
+            if (chapter.id) {
+              addLog('step', `🔄 正在存储第 ${i + 1} 章的语义向量...`);
+              try {
+                const result = await chapterApi.storeEmbeddingSync(chapter.id);
+                if (result.stored) {
+                  addLog('success', `✅ 第 ${i + 1} 章向量存储成功！`);
+                } else {
+                  addLog('info', `ℹ️ 第 ${i + 1} 章向量存储跳过：${result.message}`);
+                }
+              } catch (storeErr: any) {
+                addLog('warning', `⚠️ 第 ${i + 1} 章向量存储失败: ${storeErr?.message || '未知错误'}`);
+                addLog('info', '💡 继续生成下一章（向量将在后台异步存储）');
+              }
+            }
           } else {
             throw new Error('生成的内容为空');
           }
           
-          // 每生成一章后稍作延迟，避免请求过快
+          // 智能延迟策略：前3章间隔3秒，后续1.5秒
           if (currentProgress < chaptersToWrite.length) {
-            await new Promise(resolve => setTimeout(resolve, 500));
+            const delay = currentProgress <= 3 ? 3000 : 1500;
+            addLog('info', `⏳ 等待 ${delay / 1000} 秒后继续生成下一章...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
           }
         } catch (err: any) {
           failCount++;
