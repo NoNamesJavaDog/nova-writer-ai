@@ -2538,7 +2538,8 @@ async def generate_complete_outline(
                 outline=novel_obj.full_outline
             )
             
-            for idx, event_data in enumerate(timeline_result.get("events", [])):
+            # timeline_result 直接是列表，不是字典
+            for idx, event_data in enumerate(timeline_result):
                 timeline_event = TimelineEvent(
                     id=generate_uuid(),
                     novel_id=novel_id,
@@ -2563,7 +2564,8 @@ async def generate_complete_outline(
                 outline=novel_obj.full_outline
             )
             
-            for idx, foreshadowing_data in enumerate(foreshadowings_result.get("foreshadowings", [])):
+            # foreshadowings_result 直接是列表，不是字典
+            for idx, foreshadowing_data in enumerate(foreshadowings_result):
                 foreshadowing = Foreshadowing(
                     id=generate_uuid(),
                     novel_id=novel_id,
