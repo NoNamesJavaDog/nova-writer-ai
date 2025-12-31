@@ -2485,7 +2485,8 @@ async def generate_complete_outline(
                 outline=novel_obj.full_outline
             )
             
-            for idx, char_data in enumerate(characters_result.get("characters", [])):
+            # characters_result 直接是列表，不是字典
+            for idx, char_data in enumerate(characters_result):
                 character = Character(
                     id=generate_uuid(),
                     novel_id=novel_id,
@@ -2513,7 +2514,8 @@ async def generate_complete_outline(
                 outline=novel_obj.full_outline
             )
             
-            for idx, ws_data in enumerate(world_settings_result.get("worldSettings", [])):
+            # world_settings_result 直接是列表，不是字典
+            for idx, ws_data in enumerate(world_settings_result):
                 world_setting = WorldSetting(
                     id=generate_uuid(),
                     novel_id=novel_id,
