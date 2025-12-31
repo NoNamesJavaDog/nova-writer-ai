@@ -458,10 +458,18 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         let timelineData: any[];
         if (timelineResult.taskId) {
           addLog('info', `✅ 任务已创建 (ID: ${timelineResult.taskId})，等待完成...`);
+          addLog('info', '⏳ 正在等待任务完成（最长5分钟）...');
           timelineData = await waitForTask<any[]>(timelineResult.taskId);
+          addLog('success', '✅ 时间线任务执行完成！');
         } else {
           timelineData = timelineResult.events || [];
         }
+        
+        if (!timelineData || timelineData.length === 0) {
+          addLog('warning', '⚠️ 未生成任何时间线事件，将使用空列表');
+          timelineData = [];
+        }
+        
         const timeline: TimelineEvent[] = timelineData.map((t: any, i: number) => ({
           id: `timeline-${Date.now()}-${i}`,
           time: t.time || '未知时间',
@@ -477,7 +485,10 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
           addLog('info', `   ... 还有 ${timeline.length - 5} 个事件`);
         }
       } catch (err: any) {
-        addLog('warning', `⚠️ 生成时间线事件失败: ${err?.message || '未知错误'}，继续...`);
+        addLog('error', `❌ 生成时间线事件失败: ${err?.message || '未知错误'}`);
+        addLog('warning', '⚠️ 将使用空时间线继续...');
+        console.error('Timeline generation error:', err);
+        updates.timeline = [];
       }
       
       // 5. 始终生成伏笔（从大纲中提取）
@@ -489,10 +500,18 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         let foreshadowingsData: any[];
         if (foreshadowingsResult.taskId) {
           addLog('info', `✅ 任务已创建 (ID: ${foreshadowingsResult.taskId})，等待完成...`);
+          addLog('info', '⏳ 正在等待任务完成（最长5分钟）...');
           foreshadowingsData = await waitForTask<any[]>(foreshadowingsResult.taskId);
+          addLog('success', '✅ 伏笔任务执行完成！');
         } else {
           foreshadowingsData = foreshadowingsResult.foreshadowings || [];
         }
+        
+        if (!foreshadowingsData || foreshadowingsData.length === 0) {
+          addLog('warning', '⚠️ 未生成任何伏笔，将使用空列表');
+          foreshadowingsData = [];
+        }
+        
         const foreshadowings: Foreshadowing[] = foreshadowingsData.map((f: any, i: number) => ({
           id: `foreshadowing-${Date.now()}-${i}`,
           content: f.content || `伏笔${i + 1}`,
@@ -507,7 +526,10 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
           addLog('info', `   ... 还有 ${foreshadowings.length - 5} 个伏笔`);
         }
       } catch (err: any) {
-        addLog('warning', `⚠️ 生成伏笔失败: ${err?.message || '未知错误'}，继续...`);
+        addLog('error', `❌ 生成伏笔失败: ${err?.message || '未知错误'}`);
+        addLog('warning', '⚠️ 将使用空伏笔列表继续...');
+        console.error('Foreshadowing generation error:', err);
+        updates.foreshadowings = [];
       }
       
       addLog('step', generateExtras ? '🎨 步骤 6/6: 整合所有内容...' : '🎨 步骤 5/5: 整合所有内容...');
