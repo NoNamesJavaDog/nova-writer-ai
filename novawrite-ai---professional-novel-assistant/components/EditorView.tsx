@@ -1,5 +1,4 @@
-﻿
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Novel, Chapter } from '../types';
 import { 
@@ -48,7 +47,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   const [showMobileChapterMenu, setShowMobileChapterMenu] = useState(false);
   const isMountedRef = useRef(true);
 
-  // 娣诲姞鏃ュ織
+  // 添加日志
   const addLog = (type: LogEntry['type'], message: string) => {
     const logEntry: LogEntry = {
       id: `log-${Date.now()}-${Math.random()}`,
@@ -61,14 +60,16 @@ const EditorView: React.FC<EditorViewProps> = ({
     console[consoleMethod](message);
   };
 
-  // 杩藉姞娴佸紡鍐呭鍒版渶鍚庝竴涓棩蹇楁潯鐩?  const appendStreamChunk = (chunk: string) => {
+  // 将流式内容追加到最后一条日志条目
+  const appendStreamChunk = (chunk: string) => {
     if (!chunk) return;
     setLogs(prev => {
       const lastLog = prev[prev.length - 1];
       if (lastLog && lastLog.type === 'stream') {
-        // 濡傛灉鏈€鍚庝竴鏉℃槸娴佸紡鏃ュ織锛岃拷鍔犲唴瀹?        return [...prev.slice(0, -1), { ...lastLog, message: lastLog.message + chunk }];
+        // 如果最后一条是流式日志，追加内容
+        return [...prev.slice(0, -1), { ...lastLog, message: lastLog.message + chunk }];
       } else {
-        // 鍚﹀垯鍒涘缓鏂扮殑娴佸紡鏃ュ織鏉＄洰
+        // 否则创建新的流式日志条目
         const streamLog: LogEntry = {
           id: `stream-${Date.now()}-${Math.random()}`,
           timestamp: Date.now(),
@@ -80,7 +81,7 @@ const EditorView: React.FC<EditorViewProps> = ({
     });
   };
 
-  // 娓呯┖鏃ュ織
+  // 清空日志
   const clearLogs = () => {
     setLogs([]);
   };
@@ -98,7 +99,8 @@ const EditorView: React.FC<EditorViewProps> = ({
       console.log("Menu visible", showMobileChapterMenu);
     }
   }, [showMobileChapterMenu]);
-  // 浣跨敤鍘熺敓DOM浜嬩欢浣滀负鏈€鍚庣殑澶囩敤鏂规
+
+  // 使用原生DOM事件作为最后的备用方案
   useEffect(() => {
     const btn = document.getElementById('mobile-chapter-select-btn');
     if (btn) {
@@ -157,16 +159,16 @@ const EditorView: React.FC<EditorViewProps> = ({
     setActiveChapterIdx(chapters.length);
   };
 
-  // 鍒犻櫎绔犺妭
+  // 删除章节
   const handleDeleteChapter = (chapterIndex: number) => {
-    if (!window.confirm('纭畾瑕佸垹闄ゆ绔犺妭鍚楋紵姝ゆ搷浣滄棤娉曟挙閿€銆?)) {
+    if (!window.confirm('确定要删除此章节吗？此操作无法撤销。')) {
       return;
     }
     const currentVolumes = [...novel.volumes];
     currentVolumes[activeVolumeIdx].chapters = chapters.filter((_, idx) => idx !== chapterIndex);
     updateNovel({ volumes: currentVolumes });
     
-    // 濡傛灉鍒犻櫎鐨勬槸褰撳墠绔犺妭锛屽垏鎹㈠埌鍏朵粬绔犺妭
+    // 如果删除的是当前章节，切换到其他章节
     if (activeChapterIdx === chapterIndex) {
       if (currentVolumes[activeVolumeIdx].chapters.length > 0) {
         setActiveChapterIdx(Math.min(chapterIndex, currentVolumes[activeVolumeIdx].chapters.length - 1));
@@ -178,7 +180,7 @@ const EditorView: React.FC<EditorViewProps> = ({
     }
   };
 
-  // 鏇存柊绔犺妭淇℃伅
+  // 更新章节信息
   const handleUpdateChapter = (chapterIndex: number, updates: Partial<Chapter>) => {
     const currentVolumes = [...novel.volumes];
     currentVolumes[activeVolumeIdx].chapters[chapterIndex] = {
@@ -188,11 +190,12 @@ const EditorView: React.FC<EditorViewProps> = ({
     updateNovel({ volumes: currentVolumes });
   };
 
-  // 鍒囨崲鍗?  const handleSwitchVolume = (volumeIndex: number) => {
+  // 切换卷
+  const handleSwitchVolume = (volumeIndex: number) => {
     if (volumeIndex >= 0 && volumeIndex < novel.volumes.length && volumeIndex !== activeVolumeIdx) {
       if (setActiveVolumeIdx) {
         setActiveVolumeIdx(volumeIndex);
-        // 鍒囨崲鍒版柊鍗风殑绗竴涓珷鑺傦紙濡傛灉鏈夛級
+        // 切换到新卷的第一章节（如果有）
         const newVolume = novel.volumes[volumeIndex];
         if (newVolume.chapters.length > 0) {
           setActiveChapterIdx(0);
@@ -221,30 +224,32 @@ const EditorView: React.FC<EditorViewProps> = ({
     
     try {
       const chapter = chapters[activeChapterIdx];
-      addLog('step', `馃摑 鐢熸垚绔犺妭鍐呭: ${chapter.title}`);
+      addLog('step', `📝 生成章节内容: ${chapter.title}`);
       
-      // 鏄剧ず鎻愮ず璇?      const chapterPrompt = `璇蜂负灏忚銆?{novel.title}銆嬪垱浣滀竴涓畬鏁寸殑绔犺妭銆?绔犺妭鏍囬锛?{chapter.title}
-鎯呰妭鎽樿锛?{chapter.summary}
-鍐欎綔鎻愮ず锛?{chapter.aiPromptHints}
+      // 构建提示词
+      const chapterPrompt = `请为小说《${novel.title}》创作一个完整的章节。
+章节标题：${chapter.title}
+情节摘要：${chapter.summary}
+写作提示：${chapter.aiPromptHints}
 
-涓婁笅鏂囷細
-瀹屾暣灏忚绠€浠嬶細${novel.synopsis}
-娑夊強瑙掕壊锛?{novel.characters.map(c => `${c.name}锛?{c.personality}`).join('锛?)}
-涓栫晫瑙傝鍒欙細${novel.worldSettings.map(s => `${s.title}锛?{s.description}`).join('锛?)}
+上下文信息：
+完整小说简介：${novel.synopsis}
+涉及角色：${novel.characters.map(c => `${c.name}：${c.personality}`).join('；')}
+世界观设定：${novel.worldSettings.map(s => `${s.title}：${s.description}`).join('；')}
 
-璇蜂互楂樻枃瀛﹀搧璐ㄣ€佹矇娴稿紡鎻忚堪鍜屽紩浜哄叆鑳滅殑瀵硅瘽鏉ュ垱浣溿€備粎杈撳嚭绔犺妭姝ｆ枃鍐呭銆俙;
+请以高文学品质、沉浸式描述和引人入胜的对话来创作。仅输出章节正文内容。`;
       
-      addLog('info', '馃搵 鎻愮ず璇?(鐢熸垚绔犺妭鍐呭):');
-      addLog('info', '鈹€'.repeat(60));
+      addLog('info', '📋 提示词(生成章节内容):');
+      addLog('info', '─'.repeat(60));
       chapterPrompt.split('\n').forEach(line => {
         addLog('info', `   ${line.trim()}`);
       });
-      addLog('info', '鈹€'.repeat(60));
+      addLog('info', '─'.repeat(60));
       
-      // 鍒涘缓娴佸紡浼犺緭鍥炶皟
+      // 创建流式回调
       const onChunk = (chunk: string, isComplete: boolean) => {
         if (isComplete) {
-          addLog('success', '\n鉁?鐢熸垚瀹屾垚锛?);
+          addLog('success', '\n✅ 生成完成');
         } else if (chunk) {
           appendStreamChunk(chunk);
         }
@@ -254,9 +259,10 @@ const EditorView: React.FC<EditorViewProps> = ({
       if (!isMountedRef.current) return;
       
       if (content && content.trim()) {
-        // 鍏堟洿鏂版湰鍦扮姸鎬?        handleUpdateContent(content);
+        // 先更新本地状态
+        handleUpdateContent(content);
         
-        // 绔嬪嵆淇濆瓨鍒版暟鎹簱
+        // 立即保存到数据库
         try {
           const chapter = chapters[activeChapterIdx];
           const volume = novel.volumes[activeVolumeIdx];
@@ -266,18 +272,18 @@ const EditorView: React.FC<EditorViewProps> = ({
             content: content,
             aiPromptHints: chapter.aiPromptHints,
           });
-          addLog('success', `鉁?绔犺妭鍐呭宸蹭繚瀛樺埌鏁版嵁搴擄紒`);
+          addLog('success', `✅ 章节内容已保存至数据库！`);
         } catch (saveError: any) {
-          addLog('warning', `鈿狅笍 淇濆瓨鍒版暟鎹簱澶辫触: ${saveError?.message || '鏈煡閿欒'}锛屽唴瀹瑰凡鏇存柊鍒版湰鍦癭);
-          console.error('淇濆瓨绔犺妭鍐呭澶辫触:', saveError);
+          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
+          console.error('保存章节内容失败:', saveError);
         }
         
-        addLog('success', `鉁?绔犺妭鍐呭鐢熸垚鎴愬姛锛乣);
-        addLog('info', `馃搫 鍐呭闀垮害: ${content.length} 瀛楃`);
+        addLog('success', `✅ 章节内容生成成功`);
+        addLog('info', `ℹ️ 内容长度: ${content.length} 字符`);
         
-        // 鎻愬彇鏈珷鑺傜殑浼忕瑪
+        // 提取本章节的伏笔
         try {
-          addLog('step', '馃挕 鎻愬彇鏈珷鑺傜殑浼忕瑪绾跨储...');
+          addLog('step', '🔧 提取本章节的伏笔线索...');
           const existingForeshadowings = novel.foreshadowings.map(f => ({ content: f.content }));
           const extractedForeshadowings = await extractForeshadowingsFromChapter(
             novel.title,
@@ -294,32 +300,34 @@ const EditorView: React.FC<EditorViewProps> = ({
               isResolved: 'false'
             }));
             
-            // 淇濆瓨鍒板悗绔?            const savedForeshadowings = await foreshadowingApi.create(novel.id, newForeshadowings);
+            // 保存到后端
+            const savedForeshadowings = await foreshadowingApi.create(novel.id, newForeshadowings);
             
-            // 鏇存柊鏈湴鐘舵€?            updateNovel({
+            // 更新本地状态
+            updateNovel({
               foreshadowings: [...novel.foreshadowings, ...savedForeshadowings]
             });
             
-            addLog('success', `鉁?宸叉彁鍙?${savedForeshadowings.length} 涓紡绗擿);
+            addLog('success', `✅ 已提取 ${savedForeshadowings.length} 个伏笔`);
             savedForeshadowings.forEach((f, idx) => {
               addLog('info', `   ${idx + 1}. ${f.content.substring(0, 50)}${f.content.length > 50 ? '...' : ''}`);
             });
           } else {
-            addLog('info', '鈩癸笍 鏈珷鑺傛湭鍙戠幇鏂扮殑浼忕瑪绾跨储');
+            addLog('info', 'ℹ️ 本章节未发现新的伏笔线索');
           }
         } catch (err: any) {
-          addLog('warning', `鈿狅笍 鎻愬彇浼忕瑪澶辫触: ${err?.message || '鏈煡閿欒'}锛岀珷鑺傚唴瀹瑰凡淇濆瓨`);
+          addLog('warning', `⚠️ 提取伏笔失败: ${err?.message || '未知错误'}，但章节内容已保存`);
         }
       } else {
-        addLog('error', '鉂?鐢熸垚澶辫触锛氳繑鍥炵殑鍐呭涓虹┖');
-        alert('鐢熸垚澶辫触锛氳繑鍥炵殑鍐呭涓虹┖锛岃閲嶈瘯銆?);
+        addLog('error', '❌ 生成失败，返回的内容为空');
+        alert('生成失败，返回的内容为空，请重试。');
       }
     } catch (err: any) {
       if (!isMountedRef.current) return;
       
-      addLog('error', `鉂?鐢熸垚澶辫触: ${err?.message || '鏈煡閿欒'}`);
-      const errorMessage = err?.message || err?.toString() || '鏈煡閿欒';
-      alert(`鐢熸垚绔犺妭鍐呭澶辫触锛?{errorMessage}\n\n璇锋鏌ワ細\n1. API Key 鏄惁姝ｇ‘閰嶇疆\n2. 缃戠粶杩炴帴鏄惁姝ｅ父\n3. 浠ｇ悊璁剧疆鏄惁姝ｇ‘`);
+      addLog('error', `❌ 生成失败: ${err?.message || '未知错误'}`);
+      const errorMessage = err?.message || err?.toString() || '未知错误';
+      alert(`生成章节内容失败，${errorMessage}\n\n请检查：\n1. API Key 是否正确配置\n2. 网络连接是否正常\n3. 代理设置是否正确`);
     } finally {
       if (isMountedRef.current) {
         setIsWriting(false);
@@ -337,17 +345,18 @@ const EditorView: React.FC<EditorViewProps> = ({
     clearLogs();
     
     try {
-      addLog('step', '馃摑 鎵╁睍閫変腑鏂囨湰...');
+      addLog('step', '📝 扩展选中文本...');
       
-      // 鏄剧ず鎻愮ず璇?      const expandPrompt = `璇锋墿灞曚互涓嬫枃鏈紝淇濇寔鍘熸湁椋庢牸锛屽苟娣诲姞鏇村鎰熷畼缁嗚妭鍜岃鑹插唴蹇冩兂娉曘€?寰呮墿灞曟枃鏈細${selectedText.substring(0, 500)}${selectedText.length > 500 ? '...' : ''}
-涓婁笅鏂囷細${currentChapter?.summary || ''}`;
+      // 构建提示词
+      const expandPrompt = `请扩展以下文本，保持原有风格，并添加更多感官细节和角色内心想法。待扩展文本：${selectedText.substring(0, 500)}${selectedText.length > 500 ? '...' : ''}
+上下文：${currentChapter?.summary || ''}`;
       
-      addLog('info', '馃搵 鎻愮ず璇?(鎵╁睍鏂囨湰):');
-      addLog('info', '鈹€'.repeat(60));
+      addLog('info', '🔍 提示词(扩展文本):');
+      addLog('info', '─'.repeat(60));
       expandPrompt.split('\n').forEach(line => {
         addLog('info', `   ${line.trim()}`);
       });
-      addLog('info', '鈹€'.repeat(60));
+      addLog('info', '─'.repeat(60));
       
       const expanded = await expandText(selectedText, currentChapter?.summary || "");
       if (!isMountedRef.current) return;
@@ -356,7 +365,7 @@ const EditorView: React.FC<EditorViewProps> = ({
         const newContent = currentChapter.content.replace(selectedText, expanded);
         handleUpdateContent(newContent);
         
-        // 绔嬪嵆淇濆瓨鍒版暟鎹簱
+        // 立即保存到数据库
         try {
           const volume = novel.volumes[activeVolumeIdx];
           const chapter = chapters[activeChapterIdx];
@@ -366,23 +375,23 @@ const EditorView: React.FC<EditorViewProps> = ({
             content: newContent,
             aiPromptHints: chapter.aiPromptHints,
           });
-          addLog('success', '鉁?鏂囨湰鎵╁睍宸蹭繚瀛樺埌鏁版嵁搴擄紒');
+          addLog('success', '✅ 文本扩展已保存至数据库！');
         } catch (saveError: any) {
-          addLog('warning', `鈿狅笍 淇濆瓨鍒版暟鎹簱澶辫触: ${saveError?.message || '鏈煡閿欒'}锛屽唴瀹瑰凡鏇存柊鍒版湰鍦癭);
-          console.error('淇濆瓨鎵╁睍鏂囨湰澶辫触:', saveError);
+          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
+          console.error('保存扩展文本失败:', saveError);
         }
         
-        addLog('success', '鉁?鏂囨湰鎵╁睍鎴愬姛锛?);
+        addLog('success', '✅ 文本扩展成功');
       } else {
-        addLog('error', '鉂?鎵╁睍澶辫触锛氳繑鍥炵殑鍐呭涓虹┖');
-        alert('鎵╁睍鏂囨湰澶辫触锛氳繑鍥炵殑鍐呭涓虹┖锛岃閲嶈瘯銆?);
+        addLog('error', '❌ 扩展失败，返回的内容为空');
+        alert('扩展文本失败，返回的内容为空，请重试。');
       }
     } catch (err: any) {
       if (!isMountedRef.current) return;
       
-      addLog('error', `鉂?鎵╁睍澶辫触: ${err?.message || '鏈煡閿欒'}`);
-      const errorMessage = err?.message || err?.toString() || '鏈煡閿欒';
-      alert(`鎵╁睍鏂囨湰澶辫触锛?{errorMessage}`);
+      addLog('error', `❌ 扩展失败: ${err?.message || '未知错误'}`);
+      const errorMessage = err?.message || err?.toString() || '未知错误';
+      alert(`扩展文本失败，${errorMessage}`);
     } finally {
       if (isMountedRef.current) {
         setIsWriting(false);
@@ -400,16 +409,17 @@ const EditorView: React.FC<EditorViewProps> = ({
     clearLogs();
     
     try {
-      addLog('step', '馃摑 娑﹁壊閫変腑鏂囨湰...');
+      addLog('step', '📝 润色选中文本...');
       
-      // 鏄剧ず鎻愮ず璇?      const polishPrompt = `璇锋鼎鑹蹭互涓嬫枃鏈紝鎻愬崌娴佺晠搴︺€佽瘝姹囬€夋嫨鍜屾儏鎰熷叡楦ｃ€備笉瑕佹敼鍙樺師鎰忋€?寰呮鼎鑹叉枃鏈細${selectedText.substring(0, 500)}${selectedText.length > 500 ? '...' : ''}`;
+      // 构建提示词
+      const polishPrompt = `请润色以下文本，提升流畅度、词汇选择和情感共鸣。不要改变原意。待润色文本：${selectedText.substring(0, 500)}${selectedText.length > 500 ? '...' : ''}`;
       
-      addLog('info', '馃搵 鎻愮ず璇?(娑﹁壊鏂囨湰):');
-      addLog('info', '鈹€'.repeat(60));
+      addLog('info', '🔍 提示词(润色文本):');
+      addLog('info', '─'.repeat(60));
       polishPrompt.split('\n').forEach(line => {
         addLog('info', `   ${line.trim()}`);
       });
-      addLog('info', '鈹€'.repeat(60));
+      addLog('info', '─'.repeat(60));
       
       const polished = await polishText(selectedText);
       if (!isMountedRef.current) return;
@@ -418,7 +428,7 @@ const EditorView: React.FC<EditorViewProps> = ({
         const newContent = currentChapter.content.replace(selectedText, polished);
         handleUpdateContent(newContent);
         
-        // 绔嬪嵆淇濆瓨鍒版暟鎹簱
+        // 立即保存到数据库
         try {
           const volume = novel.volumes[activeVolumeIdx];
           const chapter = chapters[activeChapterIdx];
@@ -428,23 +438,23 @@ const EditorView: React.FC<EditorViewProps> = ({
             content: newContent,
             aiPromptHints: chapter.aiPromptHints,
           });
-          addLog('success', '鉁?鏂囨湰娑﹁壊宸蹭繚瀛樺埌鏁版嵁搴擄紒');
+          addLog('success', '✅ 文本润色已保存至数据库！');
         } catch (saveError: any) {
-          addLog('warning', `鈿狅笍 淇濆瓨鍒版暟鎹簱澶辫触: ${saveError?.message || '鏈煡閿欒'}锛屽唴瀹瑰凡鏇存柊鍒版湰鍦癭);
-          console.error('淇濆瓨娑﹁壊鏂囨湰澶辫触:', saveError);
+          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
+          console.error('保存润色文本失败:', saveError);
         }
         
-        addLog('success', '鉁?鏂囨湰娑﹁壊鎴愬姛锛?);
+        addLog('success', '✅ 文本润色成功');
       } else {
-        addLog('error', '鉂?娑﹁壊澶辫触锛氳繑鍥炵殑鍐呭涓虹┖');
-        alert('娑﹁壊鏂囨湰澶辫触锛氳繑鍥炵殑鍐呭涓虹┖锛岃閲嶈瘯銆?);
+        addLog('error', '❌ 润色失败，返回的内容为空');
+        alert('润色文本失败，返回的内容为空，请重试。');
       }
     } catch (err: any) {
       if (!isMountedRef.current) return;
       
-      addLog('error', `鉂?娑﹁壊澶辫触: ${err?.message || '鏈煡閿欒'}`);
-      const errorMessage = err?.message || err?.toString() || '鏈煡閿欒';
-      alert(`娑﹁壊鏂囨湰澶辫触锛?{errorMessage}`);
+      addLog('error', `❌ 润色失败: ${err?.message || '未知错误'}`);
+      const errorMessage = err?.message || err?.toString() || '未知错误';
+      alert(`润色文本失败，${errorMessage}`);
     } finally {
       if (isMountedRef.current) {
         setIsWriting(false);
@@ -463,54 +473,62 @@ const EditorView: React.FC<EditorViewProps> = ({
     
     try {
       const nextChapter = chapters[nextChapterIndex];
-      addLog('step', `馃摑 鐢熸垚涓嬩竴绔犺妭: ${nextChapter.title}`);
-      addLog('info', `馃摉 褰撳墠绔犺妭: ${currentChapter?.title}`);
-      addLog('info', `馃摉 涓嬩竴绔犺妭: ${nextChapter.title}`);
+      addLog('step', `📝 生成下一章节: ${nextChapter.title}`);
+      addLog('info', `📄 当前章节: ${currentChapter?.title}`);
+      addLog('info', `📄 下一章节: ${nextChapter.title}`);
       
-      // 鏄剧ず鎻愮ず璇?      const currentVolume = novel.volumes[activeVolumeIdx];
+      // 构建提示词
+      const currentVolume = novel.volumes[activeVolumeIdx];
       const previousChapters = chapters
         .slice(Math.max(0, activeChapterIdx - 2), activeChapterIdx + 1)
-        .map((ch, idx) => `绗?{Math.max(0, activeChapterIdx - 2) + idx + 1}绔犮€?{ch.title}銆嬶細${ch.content.substring(0, 500)}${ch.content.length > 500 ? '...' : ''}`)
+        .map((ch, idx) => `第${Math.max(0, activeChapterIdx - 2) + idx + 1}章：${ch.title}。\n内容：${ch.content.substring(0, 500)}${ch.content.length > 500 ? '...' : ''}`)
         .join('\n\n');
       
-      const nextChapterPrompt = `璇蜂负灏忚銆?{novel.title}銆嬪垱浣滀笅涓€绔犺妭鐨勫唴瀹广€?
-灏忚鍩烘湰淇℃伅锛?绫诲瀷锛?{novel.genre}
-绠€浠嬶細${novel.synopsis}
+      const nextChapterPrompt = `请为小说《${novel.title}》创作下一章节的内容。
+小说基本信息：类型：${novel.genre}
+简介：${novel.synopsis}
 
-褰撳墠鍗蜂俊鎭細
-鍗锋爣棰橈細${currentVolume.title}
-${currentVolume.summary ? `鍗锋弿杩帮細${currentVolume.summary}` : ''}
+当前卷信息：
+卷标题：${currentVolume.title}
+${currentVolume.summary ? `卷描述：${currentVolume.summary}` : ''}
 
-鍓嶆枃鍐呭锛堟渶杩戝嚑绔狅級锛?${previousChapters || '锛堣繖鏄湰鍗风殑绗竴绔狅級'}
+前文内容（最近几章）：
+${previousChapters || '（这是本卷的第一章）'}
 
-褰撳墠绔犺妭淇℃伅锛?绔犺妭鏍囬锛?{currentChapter?.title}
-${currentChapter?.content ? `褰撳墠绔犺妭鍐呭棰勮锛?{currentChapter.content.substring(0, 500)}${currentChapter.content.length > 500 ? '...' : ''}` : ''}
+当前章节信息：
+章节标题：${currentChapter?.title}
+${currentChapter?.content ? `当前章节内容预览：${currentChapter.content.substring(0, 500)}${currentChapter.content.length > 500 ? '...' : ''}` : ''}
 
-涓嬩竴绔犺妭淇℃伅锛堥渶瑕佺敓鎴愮殑鍐呭锛夛細
-绔犺妭鏍囬锛?{nextChapter.title}
-鎯呰妭鎽樿锛?{nextChapter.summary}
-${nextChapter.aiPromptHints ? `鍐欎綔鎻愮ず锛?{nextChapter.aiPromptHints}` : ''}
+下一章节信息（需要生成的内容）：
+章节标题：${nextChapter.title}
+情节摘要：${nextChapter.summary}
+${nextChapter.aiPromptHints ? `写作提示：${nextChapter.aiPromptHints}` : ''}
 
-瑙掕壊淇℃伅锛?${novel.characters.map(c => `${c.name}锛?{c.role}锛夛細鎬ф牸-${c.personality}锛涜儗鏅?${c.background}锛涚洰鏍?${c.goals}`).join('\n') || '鏆傛棤瑙掕壊淇℃伅'}
+角色信息：
+${novel.characters.map(c => `${c.name}：${c.role}。性格-${c.personality}，背景-${c.background}，目标-${c.goals}`).join('\n') || '暂无角色信息'}
 
-涓栫晫瑙傝瀹氾細
-${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.description}`).join('\n') || '鏆傛棤涓栫晫瑙傝瀹?}
+世界观设定：
+${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}`).join('\n') || '暂无世界观设定'}
 
-瑕佹眰锛?1. 涓庡墠鏂囧唴瀹逛繚鎸佽繛璐€у拰涓€鑷存€?2. 閬靛惊瑙掕壊鐨勬€ф牸璁惧畾鍜屼笘鐣岃瑙勫垯
-3. 鎸夌収涓嬩竴绔犺妭鐨勬儏鑺傛憳瑕佹帹杩涙晠浜?4. 淇濇寔楂樻枃瀛﹀搧璐紝浣跨敤娌夋蹈寮忔弿杩板拰寮曚汉鍏ヨ儨鐨勫璇?5. 浠呰緭鍑虹珷鑺傛鏂囧唴瀹筦;
+要求：
+1. 与前文内容保持连贯性和一致性
+2. 遵循角色的性格设定和世界观规则
+3. 按照下一章节的情节摘要推进故事
+4. 保持高文学品质，采用沉浸式描述和引人入胜的对话
+5. 仅输出章节正文内容。`;
       
-      addLog('info', '馃搵 鎻愮ず璇?(鐢熸垚涓嬩竴绔犺妭):');
-      addLog('info', '鈹€'.repeat(60));
+      addLog('info', '🔍 提示词(生成下一章节):');
+      addLog('info', '─'.repeat(60));
       nextChapterPrompt.split('\n').slice(0, 20).forEach(line => {
         addLog('info', `   ${line.trim()}`);
       });
       addLog('info', '   ...');
-      addLog('info', '鈹€'.repeat(60));
+      addLog('info', '─'.repeat(60));
       
-      // 鍒涘缓娴佸紡浼犺緭鍥炶皟
+      // 创建流式回调
       const onChunk = (chunk: string, isComplete: boolean) => {
         if (isComplete) {
-          addLog('success', '\n鉁?鐢熸垚瀹屾垚锛?);
+          addLog('success', '\n✅ 生成完成');
         } else if (chunk) {
           appendStreamChunk(chunk);
         }
@@ -520,13 +538,13 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
       if (!isMountedRef.current) return;
       
       if (content && content.trim()) {
-        // 鏇存柊涓嬩竴绔犺妭鐨勫唴瀹癸紙鏈湴鐘舵€侊級
+        // 更新下一章节的内容（本地状态）
         const newVolumes = [...novel.volumes];
         const nextChapter = newVolumes[activeVolumeIdx].chapters[nextChapterIndex];
         nextChapter.content = content;
         updateNovel({ volumes: newVolumes });
         
-        // 绔嬪嵆淇濆瓨鍒版暟鎹簱
+        // 立即保存到数据库
         try {
           const volume = novel.volumes[activeVolumeIdx];
           const nextChapterObj = chapters[nextChapterIndex];
@@ -536,14 +554,15 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
             content: content,
             aiPromptHints: nextChapterObj.aiPromptHints,
           });
-          addLog('success', `鉁?涓嬩竴绔犺妭鍐呭宸蹭繚瀛樺埌鏁版嵁搴擄紒`);
+          addLog('success', `✅ 下一章节内容已保存至数据库！`);
         } catch (saveError: any) {
-          addLog('warning', `鈿狅笍 淇濆瓨鍒版暟鎹簱澶辫触: ${saveError?.message || '鏈煡閿欒'}锛屽唴瀹瑰凡鏇存柊鍒版湰鍦癭);
-          console.error('淇濆瓨涓嬩竴绔犺妭鍐呭澶辫触:', saveError);
+          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
+          console.error('保存下一章节内容失败:', saveError);
         }
         
-        // 鎻愬彇涓嬩竴绔犺妭鐨勪紡绗?        try {
-          addLog('step', '馃挕 鎻愬彇涓嬩竴绔犺妭鐨勪紡绗旂嚎绱?..');
+        // 提取下一章节的伏笔
+        try {
+          addLog('step', '🔧 提取下一章节的伏笔线索...');
           const existingForeshadowings = novel.foreshadowings.map(f => ({ content: f.content }));
           const extractedForeshadowings = await extractForeshadowingsFromChapter(
             novel.title,
@@ -560,39 +579,41 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
               isResolved: 'false'
             }));
             
-            // 淇濆瓨鍒板悗绔?            const savedForeshadowings = await foreshadowingApi.create(novel.id, newForeshadowings);
+            // 保存到后端
+            const savedForeshadowings = await foreshadowingApi.create(novel.id, newForeshadowings);
             
-            // 鏇存柊鏈湴鐘舵€?            updateNovel({
+            // 更新本地状态
+            updateNovel({
               foreshadowings: [...novel.foreshadowings, ...savedForeshadowings]
             });
             
-            addLog('success', `鉁?宸叉彁鍙?${savedForeshadowings.length} 涓紡绗擿);
+            addLog('success', `✅ 已提取 ${savedForeshadowings.length} 个伏笔`);
             savedForeshadowings.forEach((f, idx) => {
               addLog('info', `   ${idx + 1}. ${f.content.substring(0, 50)}${f.content.length > 50 ? '...' : ''}`);
             });
           } else {
-            addLog('info', '鈩癸笍 涓嬩竴绔犺妭鏈彂鐜版柊鐨勪紡绗旂嚎绱?);
+            addLog('info', 'ℹ️ 下一章节未发现新的伏笔线索');
           }
         } catch (err: any) {
-          addLog('warning', `鈿狅笍 鎻愬彇浼忕瑪澶辫触: ${err?.message || '鏈煡閿欒'}锛岀珷鑺傚唴瀹瑰凡淇濆瓨`);
+          addLog('warning', `⚠️ 提取伏笔失败: ${err?.message || '未知错误'}，但章节内容已保存`);
         }
         
-        // 鑷姩鍒囨崲鍒颁笅涓€绔犺妭
+        // 自动切换到下一章节
         setActiveChapterIdx(nextChapterIndex);
         
-        addLog('success', `鉁?涓嬩竴绔犺妭鐢熸垚鎴愬姛锛乣);
-        addLog('info', `馃搫 鍐呭闀垮害: ${content.length} 瀛楃`);
-        addLog('info', `馃攧 宸茶嚜鍔ㄥ垏鎹㈠埌涓嬩竴绔犺妭`);
+        addLog('success', `✅ 下一章节生成成功`);
+        addLog('info', `ℹ️ 内容长度: ${content.length} 字符`);
+        addLog('info', `⏭️ 已自动跳转到下一章节`);
       } else {
-        addLog('error', '鉂?鐢熸垚澶辫触锛氳繑鍥炵殑鍐呭涓虹┖');
-        alert('鐢熸垚涓嬩竴绔犺妭澶辫触锛氳繑鍥炵殑鍐呭涓虹┖锛岃閲嶈瘯銆?);
+        addLog('error', '❌ 生成失败，返回的内容为空');
+        alert('生成下一章节失败，返回的内容为空，请重试。');
       }
     } catch (err: any) {
       if (!isMountedRef.current) return;
       
-      addLog('error', `鉂?鐢熸垚澶辫触: ${err?.message || '鏈煡閿欒'}`);
-      const errorMessage = err?.message || err?.toString() || '鏈煡閿欒';
-      alert(`鐢熸垚涓嬩竴绔犺妭澶辫触锛?{errorMessage}\n\n璇锋鏌ワ細\n1. API Key 鏄惁姝ｇ‘閰嶇疆\n2. 缃戠粶杩炴帴鏄惁姝ｅ父\n3. 浠ｇ悊璁剧疆鏄惁姝ｇ‘`);
+      addLog('error', `❌ 生成失败: ${err?.message || '未知错误'}`);
+      const errorMessage = err?.message || err?.toString() || '未知错误';
+      alert(`生成下一章节失败，${errorMessage}\n\n请检查：\n1. API Key 是否正确配置\n2. 网络连接是否正常\n3. 代理设置是否正确`);
     } finally {
       if (isMountedRef.current) {
         setIsWriting(false);
@@ -605,10 +626,10 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
     if (text) setSelectedText(text);
   };
 
-  // 瀵煎嚭绔犺妭鍐呭涓篢XT鏂囦欢
+  // 导出章节内容为TXT文件
   const handleExportChapter = () => {
     if (!currentChapter || !currentChapter.content) {
-      alert('褰撳墠绔犺妭娌℃湁鍐呭锛屾棤娉曞鍑?);
+      alert('当前章节没有内容，无法导出');
       return;
     }
 
@@ -624,32 +645,32 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
     URL.revokeObjectURL(url);
   };
 
-  // 瀵煎嚭鏁存湰灏忚涓篢XT鏂囦欢
+  // 导出整本小说为TXT文件
   const handleExportNovel = () => {
     if (!novel.volumes || novel.volumes.length === 0) {
-      alert('娌℃湁鍐呭鍙互瀵煎嚭');
+      alert('没有内容可以导出');
       return;
     }
 
     let content = `${novel.title}\n\n`;
     if (novel.synopsis) {
-      content += `绠€浠嬶細\n${novel.synopsis}\n\n`;
+      content += `简介：\n${novel.synopsis}\n\n`;
     }
     if (novel.fullOutline) {
-      content += `瀹屾暣澶х翰锛歕n${novel.fullOutline}\n\n`;
+      content += `完整大纲：\n${novel.fullOutline}\n\n`;
     }
     content += '='.repeat(50) + '\n\n';
 
     novel.volumes.forEach((volume, volIdx) => {
-      content += `\n绗?{volIdx + 1}鍗凤細${volume.title}\n`;
+      content += `\n第${volIdx + 1}卷：${volume.title}\n`;
       if (volume.summary) {
-        content += `鍗风畝浠嬶細${volume.summary}\n`;
+        content += `卷简介：${volume.summary}\n`;
       }
       content += '='.repeat(50) + '\n\n';
 
       volume.chapters.forEach((chapter, chIdx) => {
         if (chapter.content && chapter.content.trim()) {
-          content += `\n绗?{chIdx + 1}绔狅細${chapter.title}\n\n`;
+          content += `\n第${chIdx + 1}章：${chapter.title}\n\n`;
           content += chapter.content;
           content += '\n\n' + '-'.repeat(50) + '\n\n';
         }
@@ -660,7 +681,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${novel.title || '鏈懡鍚嶅皬璇?}.txt`;
+    a.download = `${novel.title || '未命名小说'}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -669,7 +690,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
 
   return (
     <>
-      {/* 绉诲姩绔珷鑺傞€夋嫨鍣?- 鏀惧湪鏈€鍓嶉潰锛岀‘淇濇€绘槸娓叉煋 */}
+      {/* 移动端章节选择器 - 放在最前面，确保总是渲染 */}
       <div 
         className="lg:hidden"
         id="mobile-chapter-select-container"
@@ -687,13 +708,13 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
         <div
           id="mobile-chapter-select-btn"
           onClick={() => {
-            console.log('鉁呪渽鉁?鎸夐挳琚偣鍑讳簡锛?);
+            console.log('✅ 按钮被点击了');
             setShowMobileChapterMenu(prev => !prev);
           }}
           onTouchEnd={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log('鉁呪渽鉁?鎸夐挳琚Е鎽镐簡锛?);
+            console.log('✅ 按钮被触摸了');
             setShowMobileChapterMenu(prev => !prev);
           }}
           style={{ 
@@ -712,7 +733,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
             <List size={16} />
             <span style={{ fontSize: '14px', fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {activeChapterIdx !== null && currentChapter ? `${activeChapterIdx + 1}. ${currentChapter.title}` : '閫夋嫨绔犺妭'}
+              {activeChapterIdx !== null && currentChapter ? `${activeChapterIdx + 1}. ${currentChapter.title}` : '选择章节'}
             </span>
           </div>
           <ChevronDown size={16} style={{ transform: showMobileChapterMenu ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
@@ -720,30 +741,30 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
       </div>
       
     <div className="flex h-full overflow-hidden flex-col lg:flex-row">
-      {/* Chapter Sidebar - 绉诲姩绔殣钘忥紝浣跨敤搴曢儴瀵艰埅鎴栨寜閽垏鎹?*/}
+      {/* Chapter Sidebar - 移动端隐藏，使用顶部导航或按钮 */}
       <div className="hidden lg:flex w-80 border-r bg-white shrink-0 flex-col">
         <div className="p-4 border-b bg-slate-50">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-              <BookOpen size={16} /> 绔犺妭鍒楄〃
+              <BookOpen size={16} /> 章节列表
             </h3>
             <button
               onClick={handleAddChapter}
               className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-              title="娣诲姞鏂扮珷鑺?
+              title="添加新章节"
             >
               <Plus size={16} />
             </button>
           </div>
           <div className="text-xs text-slate-500">
-            褰撳墠鍗凤細{novel.volumes[activeVolumeIdx]?.title || `绗?${activeVolumeIdx + 1} 鍗穈}
+            当前卷：{novel.volumes[activeVolumeIdx]?.title || `第${activeVolumeIdx + 1} 卷`}
           </div>
         </div>
         
-        {/* 鍗峰垪琛紙濡傛灉鏈夊鍗凤級 */}
+        {/* 卷列表（如果有由多卷） */}
         {novel.volumes.length > 1 && (
           <div className="p-2 border-b bg-slate-50">
-            <div className="text-xs font-semibold text-slate-500 mb-1">鍒囨崲鍗凤細</div>
+            <div className="text-xs font-semibold text-slate-500 mb-1">切换卷：</div>
             <div className="flex flex-wrap gap-1">
               {novel.volumes.map((vol, volIdx) => (
                 <button
@@ -754,7 +775,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                       ? 'bg-indigo-600 text-white'
                       : 'bg-white text-slate-600 hover:bg-slate-100 border'
                   }`}
-                  title={`绗?${volIdx + 1} 鍗凤細${vol.title} (${vol.chapters.length} 绔?`}
+                  title={`第${volIdx + 1} 卷：${vol.title} (${vol.chapters.length} 章)`}
                 >
                   {volIdx + 1}
                 </button>
@@ -766,13 +787,13 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {chapters.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-xs text-slate-400 p-2 italic mb-3">杩樻病鏈夌珷鑺傘€?/p>
+              <p className="text-xs text-slate-400 p-2 italic mb-3">这里没有章节</p>
               <button
                 onClick={handleAddChapter}
                 className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 mx-auto"
               >
                 <Plus size={14} />
-                娣诲姞绔犺妭
+                添加章节
               </button>
             </div>
           ) : (
@@ -809,7 +830,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                     handleDeleteChapter(idx);
                   }}
                   className="absolute top-1 right-1 p-1 opacity-0 group-hover:opacity-100 text-red-500 hover:bg-red-50 rounded transition-all"
-                  title="鍒犻櫎绔犺妭"
+                  title="删除章节"
                 >
                   <X size={12} />
                 </button>
@@ -826,27 +847,27 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
           <>
             <div className="min-h-[56px] border-b px-4 md:px-6 flex flex-col lg:flex-row lg:items-center justify-between shrink-0 pt-[60px] lg:pt-0 gap-2 lg:gap-0" style={{ position: 'relative', zIndex: 100 }}>
               <div className="flex flex-col flex-1 min-w-0 lg:min-h-[56px] lg:justify-center" style={{ position: 'relative', zIndex: 101 }}>
-                {/* 妗岄潰绔珷鑺傛爣棰樿緭鍏?*/}
+                {/* 桌面端章节标题输入 */}
                 <input
                   type="text"
                   value={currentChapter.title}
                   onChange={(e) => handleUpdateChapter(activeChapterIdx!, { title: e.target.value })}
                   className="hidden lg:block text-base md:text-lg font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 px-1 -ml-1 rounded truncate w-full"
-                  placeholder="绔犺妭鏍囬"
+                  placeholder="章节标题"
                 />
                 
-                {/* 绉诲姩绔珷鑺備笅鎷夎彍鍗?- 浣跨敤 Portal 娓叉煋鍒?body */}
+                {/* 移动端章节下拉菜单 - 使用 Portal 渲染到 body */}
                 {showMobileChapterMenu && typeof document !== 'undefined' && createPortal(
                     <>
                       <div 
                         className="fixed inset-0 z-[100] bg-black/40"
                         onClick={() => {
-                          console.log('閬僵灞傜偣鍑伙紝鍏抽棴鑿滃崟');
+                          console.log('遮罩层点击，关闭菜单');
                           setShowMobileChapterMenu(false);
                         }}
                         onTouchEnd={(e) => {
                           e.preventDefault();
-                          console.log('閬僵灞傝Е鎽革紝鍏抽棴鑿滃崟');
+                          console.log('遮罩层触摸，关闭菜单');
                           setShowMobileChapterMenu(false);
                         }}
                         style={{ touchAction: 'manipulation' }}
@@ -855,11 +876,11 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                         className="fixed top-[60px] left-4 right-4 bg-white border-2 border-indigo-300 rounded-xl shadow-2xl z-[102] max-h-[calc(100vh-140px)] overflow-y-auto"
                         onClick={(e) => {
                           e.stopPropagation();
-                          console.log('鑿滃崟瀹瑰櫒鐐瑰嚮');
+                          console.log('菜单容器点击');
                         }}
                         onTouchEnd={(e) => {
                           e.stopPropagation();
-                          console.log('鑿滃崟瀹瑰櫒瑙︽懜');
+                          console.log('菜单容器触摸');
                         }}
                         style={{ 
                           touchAction: 'manipulation',
@@ -867,10 +888,10 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                           WebkitOverflowScrolling: 'touch'
                         }}
                       >
-                        {/* 鍗烽€夋嫨锛堝鏋滄湁澶氬嵎锛?*/}
+                        {/* 卷选择（如果有由多卷） */}
                         {novel.volumes.length > 1 && (
                           <div className="p-3 border-b bg-indigo-50">
-                            <div className="text-xs font-semibold text-indigo-700 mb-2">鍒囨崲鍗凤細</div>
+                            <div className="text-xs font-semibold text-indigo-700 mb-2">切换卷：</div>
                             <div className="flex flex-wrap gap-2">
                               {novel.volumes.map((vol, volIdx) => (
                                 <button
@@ -893,17 +914,19 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                                       : 'bg-white text-slate-700 hover:bg-indigo-100 active:bg-indigo-200 border border-slate-300'
                                   }`}
                                 >
-                                  绗瑊volIdx + 1}鍗?                                </button>
+                                  第{volIdx + 1}卷
+                                </button>
                               ))}
                             </div>
                           </div>
                         )}
                         
-                        {/* 绔犺妭鍒楄〃 */}
+                        {/* 章节列表 */}
                         <div className="p-3">
                           {chapters.length === 0 ? (
                             <div className="text-center py-4 text-sm text-slate-400">
-                              杩樻病鏈夌珷鑺?                            </div>
+                              这里没有章节
+                            </div>
                           ) : (
                             chapters.map((ch, idx) => (
                               <button
@@ -911,7 +934,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  console.log('绔犺妭鎸夐挳鐐瑰嚮:', idx, ch.title);
+                                  console.log('章节按钮点击:', idx, ch.title);
                                   setActiveChapterIdx(idx);
                                   setShowMobileChapterMenu(false);
                                 }}
@@ -921,7 +944,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                                 onTouchEnd={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  console.log('绔犺妭鎸夐挳瑙︽懜:', idx, ch.title);
+                                  console.log('章节按钮触摸:', idx, ch.title);
                                   setActiveChapterIdx(idx);
                                   setShowMobileChapterMenu(false);
                                 }}
@@ -970,27 +993,28 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                             className="w-full mt-2 px-3 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 active:bg-indigo-800 transition-colors flex items-center justify-center gap-2 touch-manipulation"
                           >
                             <Plus size={16} />
-                            娣诲姞鏂扮珷鑺?                          </button>
+                            添加新章节
+                          </button>
                         </div>
                       </div>
                     </>,
                     document.body
                   )}
                 
-                {/* 妗岄潰绔珷鑺傛爣棰樿緭鍏?*/}
+                {/* 桌面端章节标题输入 */}
                 <input
                   type="text"
                   value={currentChapter.title}
                   onChange={(e) => handleUpdateChapter(activeChapterIdx!, { title: e.target.value })}
                   className="hidden lg:block text-base md:text-lg font-bold text-slate-800 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 px-1 -ml-1 rounded truncate w-full"
-                  placeholder="绔犺妭鏍囬"
+                  placeholder="章节标题"
                 />
                 <div className="flex items-center gap-4 mt-1">
                   <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">
-                    瀛楁暟: {currentChapter.content.split(/\s+/).filter(Boolean).length}
+                    字数: {currentChapter.content.split(/\s+/).filter(Boolean).length}
                   </p>
                   <span className="text-[10px] text-slate-400">
-                    瀛楃: {currentChapter.content.length}
+                    字符: {currentChapter.content.length}
                   </span>
                 </div>
               </div>
@@ -999,29 +1023,29 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                   onClick={handleCopyChapter}
                   disabled={!currentChapter.content}
                   className="px-3 md:px-4 py-2 bg-slate-600 text-white text-xs font-bold rounded-lg hover:bg-slate-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-                  title="澶嶅埗鏈珷鍐呭鍒板壀璐存澘"
+                  title="复制本章内容到剪贴板"
                 >
                   <Copy size={14} />
-                  <span className="hidden sm:inline">澶嶅埗</span>
+                  <span className="hidden sm:inline">复制</span>
                 </button>
                 <button 
                   onClick={handleExportChapter}
                   disabled={!currentChapter.content}
                   className="px-3 md:px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-                  title="瀵煎嚭鏈珷涓篢XT鏂囦欢"
+                  title="导出本章为TXT文件"
                 >
                   <Download size={14} />
-                  <span className="hidden sm:inline">瀵煎嚭鏈珷</span>
-                  <span className="sm:hidden">瀵煎嚭</span>
+                  <span className="hidden sm:inline">导出本章</span>
+                  <span className="sm:hidden">导出</span>
                 </button>
                 <button 
                   onClick={handleExportNovel}
                   className="px-3 md:px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1.5"
-                  title="瀵煎嚭鏁存湰灏忚涓篢XT鏂囦欢"
+                  title="导出整本小说为TXT文件"
                 >
                   <Download size={14} />
-                  <span className="hidden sm:inline">瀵煎嚭灏忚</span>
-                  <span className="sm:hidden">鍏ㄩ儴</span>
+                  <span className="hidden sm:inline">导出小说</span>
+                  <span className="sm:hidden">全部</span>
                 </button>
                 <button 
                   onClick={handleDraftWithAI}
@@ -1029,19 +1053,19 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                   className="px-3 md:px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-200 transition-colors flex items-center gap-1.5"
                 >
                   {isWriting ? <RefreshCcw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  <span className="hidden sm:inline">{currentChapter.content ? "閲嶆柊鐢熸垚鑽夌" : "AI 鐢熸垚鑽夌"}</span>
-                  <span className="sm:hidden">鐢熸垚</span>
+                  <span className="hidden sm:inline">{currentChapter.content ? "重新生成草稿" : "AI 生成草稿"}</span>
+                  <span className="sm:hidden">生成</span>
                 </button>
                 {hasNextChapter && (
                   <button 
                     onClick={handleGenerateNextChapter}
                     disabled={isWriting || !currentChapter.content}
                     className="px-3 md:px-4 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 disabled:bg-slate-200 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-                    title={!currentChapter.content ? "璇峰厛瀹屾垚鎴栫敓鎴愬綋鍓嶇珷鑺? : "鐢熸垚涓嬩竴绔犺妭鍐呭"}
+                    title={!currentChapter.content ? "请先完成当前章节生成" : "生成下一章节内容"}
                   >
                     {isWriting ? <RefreshCcw size={14} className="animate-spin" /> : <ArrowRight size={14} />}
-                    <span className="hidden sm:inline">鐢熸垚涓嬩竴绔?/span>
-                    <span className="sm:hidden">涓嬩竴绔?/span>
+                    <span className="hidden sm:inline">生成下一章</span>
+                    <span className="sm:hidden">下一章</span>
                   </button>
                 )}
               </div>
@@ -1053,8 +1077,8 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                   <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center backdrop-blur-[1px]">
                     <div className="bg-white p-6 rounded-2xl shadow-xl border border-indigo-100 flex flex-col items-center animate-pulse">
                       <Sparkles size={40} className="text-indigo-600 mb-4 animate-bounce" />
-                      <p className="text-lg font-bold text-indigo-900">AI 姝ｅ湪鍒涗綔涓?..</p>
-                      <p className="text-sm text-slate-500">姝ｅ湪铻嶅叆鎮ㄧ殑涓栫晫瑙傝瀹?..</p>
+                      <p className="text-lg font-bold text-indigo-900">AI 正在创作中...</p>
+                      <p className="text-sm text-slate-500">正在融入您的世界观设定...</p>
                     </div>
                   </div>
                 )}
@@ -1063,7 +1087,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                   value={currentChapter.content}
                   onMouseUp={onSelectText}
                   onChange={(e) => handleUpdateContent(e.target.value)}
-                  placeholder="寮€濮嬪啓浣滄垨浣跨敤 AI 鐢熸垚绔犺妭鍐呭..."
+                  placeholder="开始创作或使用 AI 生成章节内容..."
                   className="w-full h-full min-h-[600px] resize-none focus:outline-none serif text-xl leading-relaxed text-slate-800"
                 />
               </div>
@@ -1074,9 +1098,9 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
             <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mb-4">
               <Feather size={32} />
             </div>
-            <h3 className="text-xl font-bold text-slate-600 mb-2">閫夋嫨涓€涓珷鑺傚紑濮?/h3>
-            <p className="max-w-xs text-sm mb-4">浠庡垪琛ㄤ腑閫夋嫨涓€涓珷鑺傦紝鎴栧湪澶х翰瑙嗗浘涓垱寤轰竴涓€?/p>
-            {/* 绉诲姩绔細濡傛灉娌℃湁绔犺妭锛屾樉绀烘坊鍔犳寜閽?*/}
+            <h3 className="text-xl font-bold text-slate-600 mb-2">选择一个章节开始</h3>
+            <p className="max-w-xs text-sm mb-4">从列表中选择一个章节，或在侧边栏视图中创建一个。</p>
+            {/* 移动端：如果没有章节，显示添加按钮 */}
             <div className="lg:hidden">
               {chapters.length === 0 ? (
                 <button
@@ -1084,14 +1108,15 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                   className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 mx-auto"
                 >
                   <Plus size={16} />
-                  娣诲姞绗竴涓珷鑺?                </button>
+                  添加第一个章节
+                </button>
               ) : (
                 <button
                   onClick={() => setShowMobileChapterMenu(true)}
                   className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 mx-auto"
                 >
                   <List size={16} />
-                  閫夋嫨绔犺妭
+                  选择章节
                 </button>
               )}
             </div>
@@ -1104,37 +1129,37 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
         <div className="w-72 border-l bg-slate-50 shrink-0 flex flex-col overflow-hidden">
           <div className="p-4 border-b bg-white">
             <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-              <Wand2 size={16} className="text-indigo-600" /> AI 鍔╂墜
+              <Wand2 size={16} className="text-indigo-600" /> AI 助手
             </h3>
           </div>
           
           <div className="flex-1 p-4 overflow-y-auto space-y-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">绔犺妭鎽樿</h4>
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">章节摘要</h4>
               </div>
               <textarea
                 value={currentChapter.summary}
                 onChange={(e) => handleUpdateChapter(activeChapterIdx!, { summary: e.target.value })}
-                placeholder="绔犺妭鎽樿..."
+                placeholder="章节摘要..."
                 rows={3}
                 className="w-full px-3 py-2 border rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none bg-white"
               />
             </div>
 
             <div className="space-y-3">
-              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">AI 鎻愮ず</h4>
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">AI 提示</h4>
               <textarea
                 value={currentChapter.aiPromptHints || ''}
                 onChange={(e) => handleUpdateChapter(activeChapterIdx!, { aiPromptHints: e.target.value })}
-                placeholder="鍐欎綔鎻愮ず锛堢敤浜?AI 鐢熸垚锛?.."
+                placeholder="写作提示，用于 AI 生成..."
                 rows={2}
                 className="w-full px-3 py-2 border rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none bg-white"
               />
             </div>
 
             <div className="space-y-3">
-              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">鏅鸿兘宸ュ叿</h4>
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">智能工具</h4>
               <div className="space-y-2">
                 <button 
                   onClick={handleExpandSelection}
@@ -1142,9 +1167,9 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                   className="w-full text-left p-3 bg-white border rounded-lg hover:border-indigo-400 transition-all group disabled:opacity-50"
                 >
                   <p className="text-xs font-bold text-slate-800 mb-1 flex items-center gap-2">
-                    <Sparkles size={14} className="text-indigo-600" /> 鎵╁睍鏂囨湰
+                    <Sparkles size={14} className="text-indigo-600" /> 扩展文本
                   </p>
-                  <p className="text-[10px] text-slate-500">閫夋嫨鏂囨湰骞剁偣鍑讳互娣诲姞鏇村缁嗚妭鍜屾繁搴︺€?/p>
+                  <p className="text-[10px] text-slate-500">选择文本并点击以添加更多细节和深度。</p>
                 </button>
 
                 <button 
@@ -1153,18 +1178,18 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
                   className="w-full text-left p-3 bg-white border rounded-lg hover:border-indigo-400 transition-all group disabled:opacity-50"
                 >
                   <p className="text-xs font-bold text-slate-800 mb-1 flex items-center gap-2">
-                    <Feather size={14} className="text-indigo-600" /> 娑﹁壊鏂囨湰
+                    <Feather size={14} className="text-indigo-600" /> 润色文本
                   </p>
-                  <p className="text-[10px] text-slate-500">浼樺寲璇嶆眹骞舵彁鍗囨枃绗旇川閲忋€?/p>
+                  <p className="text-[10px] text-slate-500">优化词汇并提升文学质量。</p>
                 </button>
               </div>
             </div>
 
             <div className="space-y-3">
-              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">瑙掕壊淇℃伅</h4>
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">角色信息</h4>
               <div className="space-y-2">
                 {novel.characters.length === 0 ? (
-                  <p className="text-[10px] text-slate-400 italic">灏氭湭娣诲姞瑙掕壊銆?/p>
+                  <p className="text-[10px] text-slate-400 italic">尚未添加角色。</p>
                 ) : (
                   novel.characters.slice(0, 3).map(char => (
                     <div key={char.id} className="p-2 bg-white border rounded-lg text-[10px]">
@@ -1179,7 +1204,7 @@ ${novel.worldSettings.map(s => `${s.title}锛?{s.category}锛夛細${s.descripti
         </div>
       )}
 
-      {/* 鐢熸垚鎺у埗鍙?*/}
+      {/* 生成控制台 */}
       <Console
         logs={logs}
         showConsole={showConsole}
