@@ -2,7 +2,7 @@
 NovaWrite AI 后端主应用
 包含所有 API 路由
 """
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -2755,7 +2755,7 @@ async def generate_volume_outline_task(
 async def generate_chapters_task(
     novel_id: str,
     volume_index: int,
-    chapter_count: Optional[int] = None,
+    chapter_count: Optional[int] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
