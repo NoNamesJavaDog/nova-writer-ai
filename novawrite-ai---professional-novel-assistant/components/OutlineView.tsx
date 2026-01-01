@@ -16,6 +16,7 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
   const [loading, setLoading] = useState(false);
   const [loadingVolumeIdx, setLoadingVolumeIdx] = useState<number | null>(null);
   const [loadingAllVolumeOutlines, setLoadingAllVolumeOutlines] = useState(false);
+  const [loadingAllChapters, setLoadingAllChapters] = useState(false);
   const [expandedVolumeIdx, setExpandedVolumeIdx] = useState<number | null>(null);
   const [chapterCountInput, setChapterCountInput] = useState<{ [key: number]: string }>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -218,6 +219,106 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
       alert(`一键生成卷大纲失败：${err?.message || '未知错误'}`);
     } finally {
       setLoadingAllVolumeOutlines(false);
+    }
+  };
+
+  // 一键生成所有卷的章节列表（连贯且尽量不重复）
+  const handleGenAllChapters = async () => {
+    if (!novel.id) {
+      alert("小说ID无效");
+      return;
+    }
+
+    if (!novel.fullOutline || !novel.title) {
+      alert("请先生成完整大纲！");
+      return;
+    }
+
+    if (!novel.volumes || novel.volumes.length === 0) {
+      alert("还没有卷结构，无法生成章节列表");
+      return;
+    }
+
+    if (loadingAllChapters || loadingVolumeIdx !== null || loadingAllVolumeOutlines) {
+      return;
+    }
+
+    const force = window.confirm('是否覆盖已存在的章节列表？\n\n选择“确定”：全部重新生成并覆盖\n选择“取消”：只生成没有章节的卷');
+
+    const chapterCountText = window.prompt('每卷章节数（1-50，留空则自动决定）：', '');
+    let chapterCount: number | undefined;
+    if (chapterCountText && chapterCountText.trim()) {
+      const parsed = parseInt(chapterCountText.trim(), 10);
+      if (!isNaN(parsed) && parsed >= 1 && parsed <= 50) {
+        chapterCount = parsed;
+      } else {
+        alert("章节数量必须是 1-50 之间的数字");
+        return;
+      }
+    }
+
+    setLoadingAllChapters(true);
+    setShowConsole(true);
+    setConsoleMinimized(false);
+    clearLogs();
+
+    try {
+      addLog('step', `✨ 正在创建“一键生成全部章节列表”任务...`);
+      addLog('info', `📚 卷数量: ${novel.volumes.length}；模式: ${force ? '覆盖已有' : '仅补全缺失'}`);
+      if (chapterCount) {
+        addLog('info', `📌 每卷章节数: ${chapterCount}`);
+      } else {
+        addLog('info', '📌 每卷章节数: 自动决定');
+      }
+
+      const { apiRequest } = await import('../services/apiService');
+      const params = new URLSearchParams();
+      if (force) params.set('force', 'true');
+      if (chapterCount) params.set('chapter_count', String(chapterCount));
+      const qs = params.toString() ? `?${params.toString()}` : '';
+
+      const taskResult = await apiRequest<{task_id: string; status: string; message: string}>(
+        `/api/novels/${novel.id}/generate-all-chapters${qs}`,
+        { method: 'POST' }
+      );
+
+      if (!taskResult.task_id) {
+        throw new Error('任务创建失败：未返回任务ID');
+      }
+
+      addLog('success', `✅ 任务已创建 (ID: ${taskResult.task_id})`);
+      addLog('info', '⏳ 正在后台生成，请等待...');
+
+      const taskServiceModule = await import('../services/taskService');
+      const { startPolling } = taskServiceModule;
+
+      await new Promise<void>((resolve, reject) => {
+        startPolling(taskResult.task_id, {
+          onProgress: (task) => {
+            const progress = task.progress || 0;
+            const message = task.progress_message || '处理中...';
+            addLog('info', `📈 ${progress}% - ${message}`);
+          },
+          onComplete: async () => {
+            addLog('success', '✅ 全部章节列表生成完成！后端已自动保存');
+            addLog('info', '🔄 正在重新加载最新数据...');
+            if (loadNovels) {
+              await loadNovels();
+              addLog('success', '✅ 数据加载完成！');
+            }
+            resolve();
+          },
+          onError: (task) => {
+            addLog('error', `❌ 任务失败: ${task.error_message || '未知错误'}`);
+            reject(new Error(task.error_message || '任务执行失败'));
+          },
+        });
+      });
+    } catch (err: any) {
+      addLog('error', `❌ 生成失败: ${err?.message || '未知错误'}`);
+      alert(`一键生成章节列表失败：${err?.message || '未知错误'}`);
+    } finally {
+      setLoadingAllChapters(false);
     }
   };
 
@@ -525,7 +626,7 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
           <div className="flex items-center gap-2">
             <button
               onClick={handleGenAllVolumeOutlines}
-              disabled={loadingAllVolumeOutlines || loadingVolumeIdx !== null || !novel.fullOutline || !novel.volumes || novel.volumes.length === 0}
+              disabled={loadingAllVolumeOutlines || loadingAllChapters || loadingVolumeIdx !== null || !novel.fullOutline || !novel.volumes || novel.volumes.length === 0}
               className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all flex items-center gap-2"
               title="一键生成全部卷的详细大纲（可选择是否覆盖已有卷大纲）"
             >
@@ -538,6 +639,24 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
                 <>
                   <Sparkles size={16} />
                   一键生成卷大纲
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleGenAllChapters}
+              disabled={loadingAllChapters || loadingAllVolumeOutlines || loadingVolumeIdx !== null || !novel.fullOutline || !novel.volumes || novel.volumes.length === 0}
+              className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all flex items-center gap-2"
+              title="一键生成所有卷的章节列表（按卷顺序生成，尽量确保连贯且不重复）"
+            >
+              {loadingAllChapters ? (
+                <>
+                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  生成中...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} />
+                  一键生成章节列表
                 </>
               )}
             </button>
