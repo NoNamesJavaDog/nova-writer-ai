@@ -261,18 +261,32 @@ def generate_chapter_outline(
         volume_desc = f"卷描述：{volume_summary[:200]}" if volume_summary else ""
         volume_outline_text = f"卷详细大纲：{volume_outline[:1500]}" if volume_outline else ""
         
-        prompt = f"""基于以下小说信息，为第 {volume_index + 1} 卷《{volume_title}》生成章节列表：
+        prompt = f"""基于以下信息，为第 {volume_index + 1} 卷《{volume_title}》生成章节列表：
+
+【⚠️ 严格限制】
+你只能生成第 {volume_index + 1} 卷《{volume_title}》的章节列表，绝对不要包含后续卷的情节！
+所有章节的内容必须严格限制在本卷的范围内，不得涉及后续卷的剧情发展或预告！
+
+【小说基本信息】
 标题：{novel_title}
 类型：{genre}
-完整大纲：{full_outline[:800]}
 
-本卷信息：
+【本卷详细信息】（只基于这些信息生成章节，不要参考其他内容）
 {volume_desc}
 {volume_outline_text}{word_count_info}
 
-角色：{characters_text}
+【角色信息】
+{characters_text}
 
+【生成要求】
 {chapter_count_instruction}
+
+【重要约束】
+- 章节标题和摘要必须只涉及本卷的内容
+- 不得包含后续卷的剧情预告、情节铺垫或结局暗示
+- 每个章节都应该是本卷的独立故事单元
+- 章节的结尾应该是本卷的情节收束，不要为后续卷埋下伏笔
+- 如果本卷大纲中提到了后续卷的内容，请忽略它们，只关注本卷的描述
 
 仅返回 JSON 数组，每个对象包含以下键："title"（标题）、"summary"（摘要）、"aiPromptHints"（AI提示）。"""
         
