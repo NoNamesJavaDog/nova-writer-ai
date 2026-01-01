@@ -9,6 +9,7 @@ interface OutlineChatProps {
   novel: Novel;
   updateNovel: (updates: Partial<Novel>) => void;
   onClose: () => void;
+  loadNovels?: () => Promise<void>;  // 添加重新加载函数
 }
 
 interface Message {
@@ -18,7 +19,7 @@ interface Message {
   timestamp: number;
 }
 
-const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose }) => {
+const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose, loadNovels }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -147,7 +148,6 @@ const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose }
       addLog('step', '⏳ 等待任务完成...');
       
       // 自定义任务等待，以便显示进度
-      let result: any = null;
       await new Promise<void>((resolve, reject) => {
         startPolling(taskResult.taskId, {
           onProgress: (task) => {
@@ -165,13 +165,17 @@ const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose }
               });
             }
           },
-          onComplete: (task) => {
-            if (task.result) {
-              result = task.result;
-              resolve();
-            } else {
-              reject(new Error('任务完成但结果为空'));
+          onComplete: async (task) => {
+            addLog('success', '✅ 大纲修改完成！后端已自动保存');
+            addLog('info', '🔄 正在重新加载最新数据...');
+            
+            // 重新加载小说数据（后端已经保存）
+            if (loadNovels) {
+              await loadNovels();
+              addLog('success', '✅ 数据加载完成！');
             }
+            
+            resolve();
           },
           onError: (task) => {
             reject(new Error(task.error_message || '任务执行失败'));
@@ -179,181 +183,22 @@ const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose }
         });
       });
       
-      if (!result.outline) {
-        throw new Error('生成失败：返回的大纲为空');
-      }
-      
-      addLog('success', '✅ 大纲修改完成！');
-      if (result.changes && result.changes.length > 0) {
-        addLog('info', '📋 变更说明:');
-        result.changes.forEach((change, idx) => {
-          addLog('info', `   ${idx + 1}. ${change}`);
-        });
-      }
-      
-      // 更新小说数据
-      const updates: Partial<Novel> = {
-        fullOutline: result.outline
-      };
-      
-      // 更新卷结构
-      // 如果 AI 返回了卷数组，就完全替换现有卷（这样可以处理增加和删除）
-      if (result.volumes && Array.isArray(result.volumes)) {
-        const oldVolumeCount = novel.volumes?.length || 0;
-        const newVolumeCount = result.volumes.length;
-        
-        if (newVolumeCount > 0) {
-          addLog('info', `📚 AI 返回了 ${newVolumeCount} 个卷（原有 ${oldVolumeCount} 个）`);
-          
-          const updatedVolumes = result.volumes.map((vol: any, idx: number) => {
-            // 尝试匹配现有卷（优先通过索引，其次通过标题）
-            const existingVolume = novel.volumes?.[idx] || novel.volumes?.find(v => {
-              const volTitle = vol.title?.trim().toLowerCase() || '';
-              const vTitle = v.title?.trim().toLowerCase() || '';
-              return volTitle === vTitle || volTitle.includes(vTitle) || vTitle.includes(volTitle);
-            });
-            
-            return {
-              id: existingVolume?.id || `vol-${Date.now()}-${idx}`,
-              title: vol.title || existingVolume?.title || `第${idx + 1}卷`,
-              summary: vol.summary !== undefined ? vol.summary : (existingVolume?.summary || ''),
-              outline: vol.outline !== undefined ? vol.outline : (existingVolume?.outline || ''),
-              chapters: existingVolume?.chapters || [] // 保留现有章节
-            };
-          });
-          
-          updates.volumes = updatedVolumes;
-          
-          if (newVolumeCount > oldVolumeCount) {
-            addLog('success', `✅ 已添加 ${newVolumeCount - oldVolumeCount} 个新卷，共 ${newVolumeCount} 个卷`);
-          } else if (newVolumeCount < oldVolumeCount) {
-            addLog('success', `✅ 已删除 ${oldVolumeCount - newVolumeCount} 个卷，保留 ${newVolumeCount} 个卷`);
-          } else {
-            addLog('success', `✅ 卷结构已更新，保留了所有现有章节`);
-          }
-        } else {
-          // 如果 AI 返回空数组，说明要删除所有卷（但保留至少一个默认卷）
-          addLog('warning', '⚠️ AI 返回了空卷数组，保留原有卷结构');
-        }
-      } else if (result.volumes === null || result.volumes === undefined) {
-        // 如果 AI 没有返回卷信息，不更新卷结构
-        addLog('info', 'ℹ️ AI 未返回卷信息，保持原有卷结构不变');
-      }
-      
-      if (result.characters && result.characters.length > 0) {
-        addLog('info', `👥 更新 ${result.characters.length} 个角色`);
-        // 合并或更新角色
-        const updatedCharacters = [...novel.characters];
-        result.characters.forEach((newChar: any) => {
-          const existingIndex = updatedCharacters.findIndex(c => c.name === newChar.name);
-          if (existingIndex >= 0) {
-            updatedCharacters[existingIndex] = {
-              ...updatedCharacters[existingIndex],
-              ...newChar,
-              id: updatedCharacters[existingIndex].id
-            };
-          } else {
-            updatedCharacters.push({
-              id: `char-${Date.now()}-${Math.random()}`,
-              name: newChar.name || '新角色',
-              age: newChar.age || '',
-              role: newChar.role || '配角',
-              personality: newChar.personality || '',
-              background: newChar.background || '',
-              goals: newChar.goals || ''
-            });
-          }
-        });
-        updates.characters = updatedCharacters;
-      }
-      
-      if (result.worldSettings && result.worldSettings.length > 0) {
-        addLog('info', `🌍 更新 ${result.worldSettings.length} 个世界观设定`);
-        // 合并或更新世界观
-        const updatedWorldSettings = [...novel.worldSettings];
-        result.worldSettings.forEach((newWorld: any) => {
-          const existingIndex = updatedWorldSettings.findIndex(w => w.title === newWorld.title);
-          if (existingIndex >= 0) {
-            updatedWorldSettings[existingIndex] = {
-              ...updatedWorldSettings[existingIndex],
-              ...newWorld,
-              id: updatedWorldSettings[existingIndex].id,
-              category: (newWorld.category === '地理' || newWorld.category === '社会' || newWorld.category === '魔法/科技' || newWorld.category === '历史' || newWorld.category === '其他') 
-                ? newWorld.category as typeof updatedWorldSettings[0]['category']
-                : updatedWorldSettings[existingIndex].category
-            };
-          } else {
-            updatedWorldSettings.push({
-              id: `world-${Date.now()}-${Math.random()}`,
-              title: newWorld.title || '新设定',
-              category: (newWorld.category === '地理' || newWorld.category === '社会' || newWorld.category === '魔法/科技' || newWorld.category === '历史' || newWorld.category === '其他') 
-                ? newWorld.category as typeof updatedWorldSettings[0]['category']
-                : '其他',
-              description: newWorld.description || ''
-            });
-          }
-        });
-        updates.worldSettings = updatedWorldSettings;
-      }
-      
-      if (result.timeline && result.timeline.length > 0) {
-        addLog('info', `📅 更新 ${result.timeline.length} 个时间线事件`);
-        // 合并或更新时间线
-        const updatedTimeline = [...novel.timeline];
-        result.timeline.forEach((newEvent: any) => {
-          const existingIndex = updatedTimeline.findIndex(t => t.time === newEvent.time && t.event === newEvent.event);
-          if (existingIndex >= 0) {
-            updatedTimeline[existingIndex] = {
-              ...updatedTimeline[existingIndex],
-              ...newEvent,
-              id: updatedTimeline[existingIndex].id
-            };
-          } else {
-            updatedTimeline.push({
-              id: `timeline-${Date.now()}-${Math.random()}`,
-              time: newEvent.time || '未知时间',
-              event: newEvent.event || '新事件',
-              impact: newEvent.impact || ''
-            });
-          }
-        });
-        updates.timeline = updatedTimeline;
-      }
-      
-      updateNovel(updates);
-      
-      // 添加助手回复
-      let assistantContent = '✅ 大纲已根据你的要求完成修改！\n\n';
-      if (result.changes && result.changes.length > 0) {
-        assistantContent += '主要变更：\n';
-        result.changes.forEach((change, idx) => {
-          assistantContent += `${idx + 1}. ${change}\n`;
-        });
-      }
-      if (result.volumes && result.volumes.length > 0) {
-        assistantContent += `\n📚 已更新 ${result.volumes.length} 个卷的信息`;
-      }
-      if (result.characters && result.characters.length > 0) {
-        assistantContent += `\n👥 已更新 ${result.characters.length} 个角色信息`;
-      }
-      if (result.worldSettings && result.worldSettings.length > 0) {
-        assistantContent += `\n🌍 已更新 ${result.worldSettings.length} 个世界观设定`;
-      }
-      if (result.timeline && result.timeline.length > 0) {
-        assistantContent += `\n📅 已更新 ${result.timeline.length} 个时间线事件`;
-      }
-      
+      // AI助手回复
       const assistantMsg: Message = {
         id: `msg-${Date.now()}-assistant`,
         role: 'assistant',
-        content: assistantContent,
+        content: '大纲修改完成！所有更改已自动保存到数据库。',
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, assistantMsg]);
       
-      addLog('success', '🎉 所有内容更新完成！');
-    } catch (err: any) {
-      const errorMessage = err?.message || '未知错误';
+      addLog('success', '🎉 修改完成，控制台将在3秒后自动关闭');
+      setTimeout(() => {
+        setShowConsole(false);
+      }, 3000);
+      
+    } catch (error: any) {
+      const errorMessage = error?.message || '未知错误';
       addLog('error', `❌ 修改失败: ${errorMessage}`);
       
       // 构建更详细的错误提示

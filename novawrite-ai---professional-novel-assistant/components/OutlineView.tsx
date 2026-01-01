@@ -9,9 +9,10 @@ import OutlineChat from './OutlineChat';
 interface OutlineViewProps {
   novel: Novel;
   updateNovel: (updates: Partial<Novel>) => void;
+  loadNovels?: () => Promise<void>;  // 添加重新加载函数
 }
 
-const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel }) => {
+const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovels }) => {
   const [loading, setLoading] = useState(false);
   const [loadingVolumeIdx, setLoadingVolumeIdx] = useState<number | null>(null);
   const [expandedVolumeIdx, setExpandedVolumeIdx] = useState<number | null>(null);
@@ -734,6 +735,7 @@ ${chapterCount ? `请为本卷生成 ${chapterCount} 个章节。` : `请仔细�
           novel={novel}
           updateNovel={updateNovel}
           onClose={() => setShowChat(false)}
+          loadNovels={loadNovels}
         />
       )}
     </div>

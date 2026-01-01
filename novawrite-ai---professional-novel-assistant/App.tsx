@@ -376,7 +376,7 @@ const App: React.FC = () => {
       case 'dashboard':
         return <Dashboard novel={currentNovel} updateNovel={updateNovel} onStartWriting={() => setActiveView('outline')} loadNovels={loadNovels} />;
       case 'outline':
-        return <OutlineView novel={currentNovel} updateNovel={updateNovel} />;
+        return <OutlineView novel={currentNovel} updateNovel={updateNovel} loadNovels={loadNovels} />;
       case 'writing':
         return (
           <EditorView 
