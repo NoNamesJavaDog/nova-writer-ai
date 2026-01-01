@@ -136,7 +136,16 @@ const App: React.FC = () => {
       // 只有在组件仍然挂载时才显示错误
       if (isMountedRef.current) {
         console.error('加载小说列表失败:', error);
-        alert(`加载失败: ${error.message || '未知错误'}`);
+        const msg = error?.message || '未知错误';
+        // token 失效或 401 时，立即登出并清空状态，避免反复 401 请求
+        if (msg.includes('登录') || msg.includes('401')) {
+          logout();
+          setCurrentUser(null);
+          setNovels([]);
+          setCurrentNovelId('');
+          localStorage.removeItem('nova_write_current_user');
+        }
+        alert(`加载失败: ${msg}`);
       }
     } finally {
       if (isMountedRef.current) {

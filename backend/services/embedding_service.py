@@ -213,39 +213,49 @@ class EmbeddingService:
             embedding_id = str(uuid.uuid4())
             current_time = int(time_module.time() * 1000)
             
-            # 检查是否已存在
+            # 检查是否已存在（有些环境的 chapter_embeddings.chapter_id 没有唯一约束，不能用 ON CONFLICT）
             existing = db.execute(
                 text("SELECT id FROM chapter_embeddings WHERE chapter_id = :chapter_id"),
-                {"chapter_id": chapter_id}
+                {"chapter_id": chapter_id},
             ).fetchone()
-            
+
+            params = {
+                "id": embedding_id,
+                "chapter_id": chapter_id,
+                "novel_id": novel_id,
+                "full_embedding": full_embedding_str,
+                "paragraph_embeddings": paragraph_embeddings_str,
+                "chunk_count": len(paragraph_embeddings),
+                "model": self.model,
+                "created_at": current_time,
+                "updated_at": current_time,
+            }
+
             if existing:
                 embedding_id = existing[0]
-            
-            db.execute(
-                text("""
-                    INSERT INTO chapter_embeddings 
-                    (id, chapter_id, novel_id, full_content_embedding, paragraph_embeddings, chunk_count, embedding_model, created_at, updated_at)
-                    VALUES (:id, :chapter_id, :novel_id, CAST(:full_embedding AS vector), CAST(:paragraph_embeddings AS vector[]), :chunk_count, :model, :created_at, :updated_at)
-                    ON CONFLICT (chapter_id) DO UPDATE SET
-                        full_content_embedding = EXCLUDED.full_content_embedding,
-                        paragraph_embeddings = EXCLUDED.paragraph_embeddings,
-                        chunk_count = EXCLUDED.chunk_count,
-                        updated_at = EXCLUDED.updated_at,
-                        embedding_model = EXCLUDED.embedding_model
-                """),
-                {
-                    "id": embedding_id,
-                    "chapter_id": chapter_id,
-                    "novel_id": novel_id,
-                    "full_embedding": full_embedding_str,
-                    "paragraph_embeddings": paragraph_embeddings_str,
-                    "chunk_count": len(paragraph_embeddings),
-                    "model": self.model,
-                    "created_at": current_time,
-                    "updated_at": current_time
-                }
-            )
+                params["id"] = embedding_id
+                db.execute(
+                    text("""
+                        UPDATE chapter_embeddings SET
+                            novel_id = :novel_id,
+                            full_content_embedding = CAST(:full_embedding AS vector),
+                            paragraph_embeddings = CAST(:paragraph_embeddings AS vector[]),
+                            chunk_count = :chunk_count,
+                            embedding_model = :model,
+                            updated_at = :updated_at
+                        WHERE id = :id
+                    """),
+                    params,
+                )
+            else:
+                db.execute(
+                    text("""
+                        INSERT INTO chapter_embeddings
+                        (id, chapter_id, novel_id, full_content_embedding, paragraph_embeddings, chunk_count, embedding_model, created_at, updated_at)
+                        VALUES (:id, :chapter_id, :novel_id, CAST(:full_embedding AS vector), CAST(:paragraph_embeddings AS vector[]), :chunk_count, :model, :created_at, :updated_at)
+                    """),
+                    params,
+                )
             db.commit()
             
             elapsed_time = time.time() - start_time
