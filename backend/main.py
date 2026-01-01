@@ -2985,6 +2985,7 @@ async def generate_all_chapters_task(
             errors: List[Dict[str, Any]] = []
             generated_chapter_count = 0
             skipped_chapter_count = 0
+            skipped_no_outline_count = 0
 
             progress.update(5, f"准备生成全部章节列表（共 {total} 卷）...")
 
@@ -3001,21 +3002,11 @@ async def generate_all_chapters_task(
                         progress.update(base_progress, f"跳过第 {vol_index + 1} 卷《{vol_title}》（已存在 {existing_chapter_count} 章）")
                         continue
 
-                    # 强制确保存在“卷详细大纲”，否则章节容易不连贯/串卷
+                    # 仅生成“已有卷大纲”的卷；没有卷大纲则跳过，避免无边界生成导致串卷/重复
                     if not (volume_obj.outline or "").strip():
-                        progress.update(base_progress, f"本卷缺少卷大纲，正在生成第 {vol_index + 1} 卷《{vol_title}》卷详细大纲...")
-                        volume_outline = generate_volume_outline_impl(
-                            novel_title=novel_obj.title,
-                            full_outline=novel_obj.full_outline or "",
-                            volume_title=vol_title,
-                            volume_summary=volume_obj.summary or "",
-                            characters=characters_data,
-                            volume_index=vol_index,
-                            progress_callback=None
-                        )
-                        volume_obj.outline = volume_outline
-                        volume_obj.updated_at = int(time.time() * 1000)
-                        task_db.commit()
+                        skipped_no_outline_count += 1
+                        progress.update(base_progress, f"跳过第 {vol_index + 1} 卷《{vol_title}》（缺少卷大纲，先生成卷大纲后再生成章节）")
+                        continue
 
                     # 构建“前面卷参考信息”：使用已经落库的章节标题+摘要，确保连贯且不重复
                     previous_volumes_info = []
@@ -3120,6 +3111,7 @@ async def generate_all_chapters_task(
                     "message": "全部章节列表已生成并保存" if has_any else "全部章节列表生成失败",
                     "generated_volume_count": generated_volume_count,
                     "skipped_volume_count": skipped_volume_count,
+                    "skipped_no_outline_count": skipped_no_outline_count,
                     "failed_volume_count": failed_volume_count,
                     "errors": errors,
                     "generated_chapter_count": generated_chapter_count,
