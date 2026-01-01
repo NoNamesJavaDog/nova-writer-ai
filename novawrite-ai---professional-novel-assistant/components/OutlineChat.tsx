@@ -103,38 +103,9 @@ const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose, 
     clearLogs();
     
     try {
-      addLog('step', '🤖 分析用户修改请求...');
-      addLog('info', `📝 用户请求: ${userMessage}`);
+      addLog('step', '🚀 正在创建修改任务...');
       
-      // 显示提示词
-      const modifyPrompt = `你是一名资深小说编辑，用户想要修改小说《${novel.title}》的大纲。
-
-当前小说信息：
-类型：${novel.genre}
-简介：${novel.synopsis}
-当前大纲：${novel.fullOutline.substring(0, 2000)}${novel.fullOutline.length > 2000 ? '...' : ''}
-
-角色列表：${novel.characters.map(c => `${c.name}（${c.role}）：${c.personality}`).join('；') || '暂无'}
-
-世界观设定：${novel.worldSettings.map(w => `${w.title}（${w.category}）：${w.description}`).join('；') || '暂无'}
-
-时间线事件：${novel.timeline.map(t => `[${t.time}] ${t.event}`).join('；') || '暂无'}
-
-用户修改请求：${userMessage}
-
-请根据用户的修改请求，生成修改后的内容。`;
-      
-      addLog('info', '📋 提示词 (对话修改大纲):');
-      addLog('info', '─'.repeat(60));
-      modifyPrompt.split('\n').slice(0, 10).forEach(line => {
-        addLog('info', `   ${line.trim()}`);
-      });
-      addLog('info', '   ...');
-      addLog('info', '─'.repeat(60));
-      
-      addLog('step', '🚀 创建修改任务...');
-      
-      // 创建任务
+      // 直接调用后端API，所有业务逻辑在后端处理
       const taskResult = await modifyOutlineByDialogue(novel, userMessage);
       
       if (!taskResult.taskId) {
