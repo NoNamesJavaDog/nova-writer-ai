@@ -119,6 +119,8 @@ const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose, 
       addLog('step', '⏳ 等待任务完成...');
       
       // 自定义任务等待，以便显示进度
+      let assistantContent = '✅ 大纲修改完成！所有更改已自动保存到数据库。';
+      
       await new Promise<void>((resolve, reject) => {
         startPolling(taskResult.taskId, {
           onProgress: (task) => {
@@ -138,12 +140,79 @@ const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose, 
           },
           onComplete: async (task) => {
             addLog('success', '✅ 大纲修改完成！后端已自动保存');
+            
+            // 解析任务结果，显示更改信息
+            let changesList: string[] = [];
+            let updatedItems: any = {};
+            
+            if (task.result) {
+              try {
+                const resultData = typeof task.result === 'string' ? JSON.parse(task.result) : task.result;
+                changesList = resultData.changes || [];
+                updatedItems = resultData.updated_items || {};
+              } catch (e) {
+                console.warn('解析任务结果失败:', e);
+              }
+            }
+            
+            // 显示更改说明
+            if (changesList.length > 0) {
+              addLog('info', '📋 本次修改内容：');
+              changesList.forEach((change, idx) => {
+                addLog('info', `   ${idx + 1}. ${change}`);
+              });
+            }
+            
+            // 显示更新的项目统计
+            const updatedCount = Object.values(updatedItems).filter((v: any) => 
+              typeof v === 'number' ? v > 0 : v === true
+            ).length;
+            
+            if (updatedCount > 0) {
+              addLog('info', '📊 更新统计：');
+              if (updatedItems.outline) {
+                addLog('info', '   ✓ 大纲已更新');
+              }
+              if (updatedItems.volumes > 0) {
+                addLog('info', `   ✓ 卷结构：${updatedItems.volumes} 个卷`);
+              }
+              if (updatedItems.characters > 0) {
+                addLog('info', `   ✓ 角色：${updatedItems.characters} 个`);
+              }
+              if (updatedItems.world_settings > 0) {
+                addLog('info', `   ✓ 世界观设定：${updatedItems.world_settings} 个`);
+              }
+              if (updatedItems.timeline > 0) {
+                addLog('info', `   ✓ 时间线事件：${updatedItems.timeline} 个`);
+              }
+            }
+            
             addLog('info', '🔄 正在重新加载最新数据...');
             
             // 重新加载小说数据（后端已经保存）
             if (loadNovels) {
               await loadNovels();
               addLog('success', '✅ 数据加载完成！');
+            }
+            
+            // 构建助手回复消息，包含更改说明
+            assistantContent = '✅ 大纲修改完成！所有更改已自动保存到数据库。\n\n';
+            
+            if (changesList.length > 0) {
+              assistantContent += '📋 本次修改内容：\n';
+              changesList.forEach((change, idx) => {
+                assistantContent += `${idx + 1}. ${change}\n`;
+              });
+              assistantContent += '\n';
+            }
+            
+            if (updatedCount > 0) {
+              assistantContent += '📊 更新统计：\n';
+              if (updatedItems.outline) assistantContent += '✓ 大纲已更新\n';
+              if (updatedItems.volumes > 0) assistantContent += `✓ 卷结构：${updatedItems.volumes} 个卷\n`;
+              if (updatedItems.characters > 0) assistantContent += `✓ 角色：${updatedItems.characters} 个\n`;
+              if (updatedItems.world_settings > 0) assistantContent += `✓ 世界观设定：${updatedItems.world_settings} 个\n`;
+              if (updatedItems.timeline > 0) assistantContent += `✓ 时间线事件：${updatedItems.timeline} 个\n`;
             }
             
             resolve();
@@ -158,7 +227,7 @@ const OutlineChat: React.FC<OutlineChatProps> = ({ novel, updateNovel, onClose, 
       const assistantMsg: Message = {
         id: `msg-${Date.now()}-assistant`,
         role: 'assistant',
-        content: '大纲修改完成！所有更改已自动保存到数据库。',
+        content: assistantContent,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, assistantMsg]);

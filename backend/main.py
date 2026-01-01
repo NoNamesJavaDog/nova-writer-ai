@@ -2831,7 +2831,21 @@ async def modify_outline_by_dialogue_endpoint(
                     task_obj.status = "completed"
                     task_obj.progress = 100
                     task_obj.progress_message = "大纲修改完成"
-                    task_obj.result = json.dumps({"success": True, "message": "大纲已更新"})
+                    
+                    # 构建返回结果，包含更改说明
+                    result_data = {
+                        "success": True,
+                        "message": "大纲已更新",
+                        "changes": result.get("changes", []),  # 包含AI返回的更改说明
+                        "updated_items": {
+                            "outline": bool(result.get("outline")),
+                            "volumes": len(result.get("volumes", [])),
+                            "characters": len(result.get("characters", [])),
+                            "world_settings": len(result.get("world_settings", [])),
+                            "timeline": len(result.get("timeline", []))
+                        }
+                    }
+                    task_obj.result = json.dumps(result_data)
                     task_obj.completed_at = int(time.time() * 1000)
                     task_db.commit()
             finally:
