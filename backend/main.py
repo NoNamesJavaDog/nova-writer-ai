@@ -57,6 +57,7 @@ from captcha import generate_captcha, verify_captcha, check_login_status
 from gemini_service import (
     generate_full_outline, generate_volume_outline_stream, generate_volume_outline as generate_volume_outline_impl,
     generate_chapter_outline as generate_chapter_outline_impl, write_chapter_content_stream,
+    write_chapter_content as write_chapter_content_impl,
     generate_characters, generate_world_settings, generate_timeline_events,
     generate_foreshadowings_from_outline, modify_outline_by_dialogue,
     extract_foreshadowings_from_chapter

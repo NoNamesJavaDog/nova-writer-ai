@@ -439,6 +439,150 @@ def write_chapter_content_stream(
         raise Exception(f"生成章节内容失败: {str(e)}")
 
 
+def write_chapter_content(
+    novel_title: str,
+    genre: str,
+    synopsis: str,
+    chapter_title: str,
+    chapter_summary: str,
+    chapter_prompt_hints: str,
+    characters: list,
+    world_settings: list,
+    previous_chapters_context: Optional[str] = None,
+    novel_id: Optional[str] = None,
+    current_chapter_id: Optional[str] = None,
+    db_session=None,
+    progress_callback=None
+) -> str:
+    """生成章节内容（非流式，返回完整文本）"""
+    try:
+        if progress_callback:
+            progress_callback.update(10, "开始生成章节内容...")
+        
+        characters_text = "；".join([f"{c.get('name', '')}：{c.get('personality', '')}" for c in characters]) if characters else "暂无"
+        world_text = "；".join([f"{w.get('title', '')}：{w.get('description', '')}" for w in world_settings]) if world_settings else "暂无"
+        
+        # 使用向量检索获取智能上下文（如果提供了 novel_id 和 db_session）
+        if novel_id and db_session:
+            try:
+                from services.consistency_checker import ConsistencyChecker
+                from services.content_similarity_checker import ContentSimilarityChecker
+                
+                # 可选：在生成前进行相似度检查（仅警告，不阻止生成）
+                try:
+                    similarity_checker = ContentSimilarityChecker()
+                    similarity_result = similarity_checker.check_before_generation(
+                        db=db_session,
+                        novel_id=novel_id,
+                        chapter_title=chapter_title,
+                        chapter_summary=chapter_summary,
+                        exclude_chapter_ids=[current_chapter_id] if current_chapter_id else None,
+                        similarity_threshold=0.8
+                    )
+                    if similarity_result.get("has_similar_content"):
+                        import logging
+                        logging.getLogger(__name__).warning(f"⚠️  相似度警告: {similarity_result.get('warnings', [])}")
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"⚠️  相似度检查失败（继续生成）: {str(e)}")
+                
+                # 获取智能上下文
+                checker = ConsistencyChecker()
+                smart_context = checker.get_relevant_context_text(
+                    db=db_session,
+                    novel_id=novel_id,
+                    current_chapter_title=chapter_title,
+                    current_chapter_summary=chapter_summary,
+                    exclude_chapter_ids=[current_chapter_id] if current_chapter_id else None,
+                    max_chapters=5
+                )
+                
+                if smart_context and smart_context.strip():
+                    previous_chapters_context = smart_context
+                    import logging
+                    logging.getLogger(__name__).info(f"✅ 使用智能上下文检索，找到 {len(smart_context.split('---'))} 个相关章节")
+            except Exception as e:
+                # 如果向量检索失败，使用原始上下文，不影响主流程
+                import logging
+                logging.getLogger(__name__).warning(f"⚠️  智能上下文检索失败，使用原始上下文: {str(e)}")
+        
+        # 构建前文上下文部分
+        previous_context_section = ""
+        if previous_chapters_context and previous_chapters_context.strip():
+            previous_context_section = f"""
+
+【前文内容参考】（基于向量相似度智能推荐的相关章节）：
+{previous_chapters_context}
+
+🚨 【重复内容检查要求】- 必须严格遵守：
+1. ❌ 绝对禁止：重复前文中已经完整描述过的场景、事件、对话
+2. ❌ 绝对禁止：使用与前文相同的叙事结构、描写手法、语言风格
+3. ❌ 绝对禁止：让角色重复做过的事情或说过类似的话
+4. ✅ 正确做法：如需提及前文，仅用1-2句简短过渡，不展开描写
+5. ✅ 正确做法：本章必须推进全新情节，展现新的冲突和发展
+6. ✅ 正确做法：采用不同的叙述视角、情绪基调、描写重点
+7. ✅ 正确做法：确保本章有独特的核心事件，与前文明显区分
+
+⚠️ 注意：上述前文是通过AI语义分析自动推荐的最相关章节，请认真阅读并确保本章内容完全不同。
+"""
+        
+        prompt = f"""请为小说《{novel_title}》创作一个完整的章节。
+
+【章节基本信息】
+- 标题：{chapter_title}
+- 情节摘要：{chapter_summary}
+- 写作提示：{chapter_prompt_hints}
+
+【小说背景信息】
+- 完整简介：{synopsis}
+- 涉及角色：{characters_text}
+- 世界观规则：{world_text}
+{previous_context_section}
+
+【创作要求】
+1. 字数要求：5000-8000字（正文内容，充实饱满）
+2. 情节要求：
+   - 必须完整推进本章情节，有明确的开端、发展、高潮、结尾
+   - 核心事件必须与前文不同，避免重复情节
+   - 确保本章有独特的戏剧冲突和情感张力
+3. 叙事要求：
+   - 采用高文学品质的沉浸式描述
+   - 对话要生动自然，符合角色性格
+   - 细节描写丰富（环境、心理、动作、神态）
+   - 叙事节奏张弛有度，避免平铺直叙
+4. 原创性要求：
+   - 场景设置必须新颖独特
+   - 角色互动方式要有变化
+   - 避免使用套路化的表达和桥段
+
+⚠️ 最重要：认真阅读【前文内容参考】，确保本章内容完全原创，不与前文重复！
+
+现在请开始创作，仅输出章节正文内容（不要输出标题）："""
+        
+        if progress_callback:
+            progress_callback.update(50, "正在调用AI生成章节内容...")
+        
+        response = client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=prompt,
+            config={
+                "temperature": 0.9,
+                "max_output_tokens": 16384,
+            }
+        )
+        
+        if not response.text:
+            raise Exception("API 返回空响应")
+        
+        if progress_callback:
+            progress_callback.update(90, "章节内容生成完成")
+        
+        return response.text
+                
+    except Exception as e:
+        raise Exception(f"生成章节内容失败: {str(e)}")
+
+
 def generate_characters(
     title: str,
     genre: str,
