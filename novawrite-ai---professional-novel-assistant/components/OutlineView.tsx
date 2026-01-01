@@ -15,6 +15,7 @@ interface OutlineViewProps {
 const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovels }) => {
   const [loading, setLoading] = useState(false);
   const [loadingVolumeIdx, setLoadingVolumeIdx] = useState<number | null>(null);
+  const [loadingAllVolumeOutlines, setLoadingAllVolumeOutlines] = useState(false);
   const [expandedVolumeIdx, setExpandedVolumeIdx] = useState<number | null>(null);
   const [chapterCountInput, setChapterCountInput] = useState<{ [key: number]: string }>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -138,6 +139,85 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
       alert(`生成卷大纲失败：${err?.message || '未知错误'}`);
     } finally {
       setLoadingVolumeIdx(null);
+    }
+  };
+
+  // 一键生成所有卷的详细大纲（后端任务：可选跳过已有卷大纲）
+  const handleGenAllVolumeOutlines = async () => {
+    if (!novel.id) {
+      alert("小说ID无效");
+      return;
+    }
+
+    if (!novel.fullOutline || !novel.title) {
+      alert("请先生成完整大纲！");
+      return;
+    }
+
+    if (!novel.volumes || novel.volumes.length === 0) {
+      alert("还没有卷结构，无法生成卷大纲");
+      return;
+    }
+
+    if (loadingAllVolumeOutlines || loadingVolumeIdx !== null) {
+      return;
+    }
+
+    const force = window.confirm('是否覆盖已存在的卷大纲？\n\n选择“确定”：全部重新生成并覆盖\n选择“取消”：只生成缺失卷大纲的卷');
+
+    setLoadingAllVolumeOutlines(true);
+    setShowConsole(true);
+    setConsoleMinimized(false);
+    clearLogs();
+
+    try {
+      addLog('step', `✨ 正在创建“一键生成全部卷大纲”任务...`);
+      addLog('info', `📚 卷数量: ${novel.volumes.length}；模式: ${force ? '覆盖已有' : '仅补全缺失'}`);
+
+      const { apiRequest } = await import('../services/apiService');
+      const params = force ? `?force=true` : '';
+      const taskResult = await apiRequest<{task_id: string; status: string; message: string}>(
+        `/api/novels/${novel.id}/generate-all-volume-outlines${params}`,
+        { method: 'POST' }
+      );
+
+      if (!taskResult.task_id) {
+        throw new Error('任务创建失败：未返回任务ID');
+      }
+
+      addLog('success', `✅ 任务已创建 (ID: ${taskResult.task_id})`);
+      addLog('info', '⏳ 正在后台生成，请等待...');
+
+      const taskServiceModule = await import('../services/taskService');
+      const { startPolling } = taskServiceModule;
+
+      await new Promise<void>((resolve, reject) => {
+        startPolling(taskResult.task_id, {
+          onProgress: (task) => {
+            const progress = task.progress || 0;
+            const message = task.progress_message || '处理中...';
+            addLog('info', `📈 ${progress}% - ${message}`);
+          },
+          onComplete: async () => {
+            addLog('success', '✅ 全部卷大纲生成完成！后端已自动保存');
+            addLog('info', '🔄 正在重新加载最新数据...');
+            if (loadNovels) {
+              await loadNovels();
+              addLog('success', '✅ 数据加载完成！');
+            }
+            resolve();
+          },
+          onError: (task) => {
+            addLog('error', `❌ 任务失败: ${task.error_message || '未知错误'}`);
+            reject(new Error(task.error_message || '任务执行失败'));
+          },
+        });
+      });
+    } catch (err: any) {
+      addLog('error', `❌ 生成失败: ${err?.message || '未知错误'}`);
+      alert(`一键生成卷大纲失败：${err?.message || '未知错误'}`);
+    } finally {
+      setLoadingAllVolumeOutlines(false);
     }
   };
 
@@ -442,13 +522,33 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
             <BookOpen size={18} className="text-indigo-600" />
             卷结构 ({novel.volumes?.length || 0})
           </h3>
-          <button
-            onClick={handleAddVolume}
-            className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-all flex items-center gap-2"
-          >
-            <Plus size={16} />
-            添加卷
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleGenAllVolumeOutlines}
+              disabled={loadingAllVolumeOutlines || loadingVolumeIdx !== null || !novel.fullOutline || !novel.volumes || novel.volumes.length === 0}
+              className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all flex items-center gap-2"
+              title="一键生成全部卷的详细大纲（可选择是否覆盖已有卷大纲）"
+            >
+              {loadingAllVolumeOutlines ? (
+                <>
+                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  生成中...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} />
+                  一键生成卷大纲
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleAddVolume}
+              className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-all flex items-center gap-2"
+            >
+              <Plus size={16} />
+              添加卷
+            </button>
+          </div>
         </div>
 
         {!novel.volumes || novel.volumes.length === 0 ? (

@@ -2757,6 +2757,131 @@ async def generate_volume_outline_task(
         "message": f"卷大纲生成任务已创建，正在后台执行（第 {volume_index + 1} 卷：{volume.title}）"
     }
 
+@app.post("/api/novels/{novel_id}/generate-all-volume-outlines")
+async def generate_all_volume_outlines_task(
+    novel_id: str,
+    force: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    一键生成所有卷的详细大纲并保存到数据库
+    - 默认只生成缺失卷大纲的卷；force=true 时会覆盖已存在的卷大纲
+    """
+    # 验证小说存在
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.user_id == current_user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+
+    volumes = db.query(Volume).filter(
+        Volume.novel_id == novel_id
+    ).order_by(Volume.volume_order).all()
+    if not volumes:
+        raise HTTPException(status_code=400, detail="该小说还没有卷结构，请先生成或创建卷")
+
+    task = create_task(
+        db=db,
+        novel_id=novel_id,
+        user_id=current_user.id,
+        task_type="generate_all_volume_outlines",
+        task_data={
+            "force": force,
+            "volume_count": len(volumes)
+        }
+    )
+
+    def execute_all_volume_outlines_generation():
+        task_db = SessionLocal()
+        try:
+            novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
+            if not novel_obj:
+                raise Exception("小说不存在")
+            if not (novel_obj.full_outline or "").strip():
+                raise Exception("完整大纲为空，请先生成完整大纲后再生成卷大纲")
+
+            volumes_obj = task_db.query(Volume).filter(
+                Volume.novel_id == novel_id
+            ).order_by(Volume.volume_order).all()
+            if not volumes_obj:
+                raise Exception("卷不存在")
+
+            characters = task_db.query(Character).filter(Character.novel_id == novel_id).all()
+            characters_data = [{"name": c.name, "role": c.role} for c in characters]
+
+            progress = ProgressCallback(task.id)
+            total = len(volumes_obj)
+            generated_count = 0
+            skipped_count = 0
+            progress.update(5, f"准备生成全部卷大纲（共 {total} 卷）...")
+
+            for idx, volume_obj in enumerate(volumes_obj):
+                current_progress = 5 + int(((idx) / max(total, 1)) * 90)
+                vol_title = volume_obj.title or f"第{volume_obj.volume_order + 1}卷"
+
+                if not force and (volume_obj.outline or "").strip():
+                    skipped_count += 1
+                    progress.update(current_progress, f"跳过第 {volume_obj.volume_order + 1} 卷《{vol_title}》（已存在卷大纲）")
+                    continue
+
+                progress.update(current_progress, f"生成第 {volume_obj.volume_order + 1} 卷《{vol_title}》卷大纲... ({idx + 1}/{total})")
+                volume_outline = generate_volume_outline_impl(
+                    novel_title=novel_obj.title,
+                    full_outline=novel_obj.full_outline or "",
+                    volume_title=vol_title,
+                    volume_summary=volume_obj.summary or "",
+                    characters=characters_data,
+                    volume_index=volume_obj.volume_order,
+                    progress_callback=None
+                )
+
+                volume_obj.outline = volume_outline
+                volume_obj.updated_at = int(time.time() * 1000)
+                task_db.commit()
+                generated_count += 1
+
+            progress.update(95, f"卷大纲生成完成，正在更新任务状态...（生成 {generated_count}，跳过 {skipped_count}）")
+
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "completed"
+                task_obj.progress = 100
+                task_obj.progress_message = f"全部卷大纲生成完成（生成 {generated_count}，跳过 {skipped_count}）"
+                task_obj.result = json.dumps({
+                    "success": True,
+                    "message": "全部卷大纲已生成并保存",
+                    "generated_count": generated_count,
+                    "skipped_count": skipped_count,
+                    "volume_count": total,
+                    "force": force
+                })
+                task_obj.completed_at = int(time.time() * 1000)
+                task_db.commit()
+        except Exception as e:
+            logger.error(f"一键生成全部卷大纲失败: {str(e)}", exc_info=True)
+            try:
+                task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+                if task_obj:
+                    task_obj.status = "failed"
+                    task_obj.error_message = str(e)
+                    task_obj.completed_at = int(time.time() * 1000)
+                    task_db.commit()
+            finally:
+                pass
+        finally:
+            task_db.close()
+
+    executor = get_task_executor()
+    executor.submit(execute_all_volume_outlines_generation)
+
+    return {
+        "task_id": task.id,
+        "status": "pending",
+        "message": f"全部卷大纲生成任务已创建，正在后台执行（共 {len(volumes)} 卷）"
+    }
+
 @app.post("/api/novels/{novel_id}/volumes/{volume_index}/generate-chapters")
 async def generate_chapters_task(
     novel_id: str,
