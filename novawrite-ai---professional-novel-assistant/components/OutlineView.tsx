@@ -840,7 +840,9 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
                           {volume.chapters.map((ch, chIdx) => (
                             <div key={ch.id} className="p-3 bg-slate-50 border rounded-lg text-xs hover:border-indigo-300 transition-colors">
                               <div className="flex justify-between items-start mb-1">
-                                <span className="font-bold text-slate-700">第 {chIdx + 1} 章: {ch.title}</span>
+                                <span className="font-bold text-slate-700">
+                                  第 {(novel.volumes?.slice(0, volumeIdx).reduce((acc, v) => acc + (v.chapters?.length || 0), 0) || 0) + chIdx + 1} 章: {ch.title}
+                                </span>
                               </div>
                               <p className="text-slate-500 line-clamp-2 mb-1">{ch.summary}</p>
                               {ch.aiPromptHints && (

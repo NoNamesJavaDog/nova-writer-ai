@@ -3002,30 +3002,45 @@ async def generate_all_chapters_task(
                         progress.update(base_progress, f"跳过第 {vol_index + 1} 卷《{vol_title}》（已存在 {existing_chapter_count} 章）")
                         continue
 
+                    # 为保证跨卷衔接：除第一卷外，要求上一卷已有章节列表
+                    if vol_index > 0:
+                        prev_volume = task_db.query(Volume).filter(
+                            Volume.novel_id == novel_id,
+                            Volume.volume_order == vol_index - 1
+                        ).first()
+                        prev_chapter_count = 0
+                        if prev_volume:
+                            prev_chapter_count = task_db.query(Chapter).filter(Chapter.volume_id == prev_volume.id).count()
+                        if prev_chapter_count == 0:
+                            skipped_volume_count += 1
+                            progress.update(base_progress, f"跳过第 {vol_index + 1} 卷《{vol_title}》（上一卷尚无章节列表，先生成上一卷章节以保证连贯）")
+                            continue
+
                     # 仅生成“已有卷大纲”的卷；没有卷大纲则跳过，避免无边界生成导致串卷/重复
                     if not (volume_obj.outline or "").strip():
                         skipped_no_outline_count += 1
                         progress.update(base_progress, f"跳过第 {vol_index + 1} 卷《{vol_title}》（缺少卷大纲，先生成卷大纲后再生成章节）")
                         continue
 
-                    # 构建“前面卷参考信息”：使用已经落库的章节标题+摘要，确保连贯且不重复
+                    # 构建“上一卷参考信息”：只取上一卷最后若干章（标题+摘要），确保连贯且不重复
                     previous_volumes_info = []
                     if vol_index > 0:
-                        prev_vols = task_db.query(Volume).filter(
+                        prev_vol = task_db.query(Volume).filter(
                             Volume.novel_id == novel_id,
-                            Volume.volume_order < vol_index
-                        ).order_by(Volume.volume_order).all()
-                        for prev_vol in prev_vols:
+                            Volume.volume_order == vol_index - 1
+                        ).first()
+                        if prev_vol:
                             prev_chapters = task_db.query(Chapter).filter(
                                 Chapter.volume_id == prev_vol.id
                             ).order_by(Chapter.chapter_order).all()
+                            tail_chapters = prev_chapters[-12:] if len(prev_chapters) > 12 else prev_chapters
                             previous_volumes_info.append({
                                 "title": prev_vol.title,
                                 "summary": prev_vol.summary or "",
                                 "chapters": [{
                                     "title": ch.title,
                                     "summary": ch.summary or ""
-                                } for ch in prev_chapters]
+                                } for ch in tail_chapters]
                             })
 
                     # 构建“后续卷规划（避雷）”：避免把后续卷大事件提前写到本卷
@@ -3241,89 +3256,28 @@ async def generate_chapters_task(
                 "role": c.role
             } for c in characters]
             
-            # 获取前面卷的信息（用于确保连贯性）
-            # 使用向量数据库查找最相关的章节，确保语义连贯
+            # 获取上一卷的信息（用于衔接与避免重复）
+            # 只使用“上一卷末尾章节摘要”作为硬约束，避免向量检索引入无关上下文导致串卷
             previous_volumes_info = []
             if volume_index > 0:
-                previous_volumes = task_db.query(Volume).filter(
+                prev_volume = task_db.query(Volume).filter(
                     Volume.novel_id == novel_id,
-                    Volume.volume_order < volume_index
-                ).order_by(Volume.volume_order).all()
-                
-                # 使用向量数据库查找与当前卷大纲最相关的章节
-                try:
-                    from services.consistency_checker import ConsistencyChecker
-                    checker = ConsistencyChecker()
-                    
-                    # 构建当前卷的查询文本
-                    current_volume_query = f"{volume_obj.title} {volume_obj.summary or ''} {volume_obj.outline[:500] if volume_obj.outline else ''}"
-                    
-                    # 查找语义相关的章节（从所有前面卷中）
-                    similar_chapters = checker.embedding_service.find_similar_chapters(
-                        db=task_db,
-                        novel_id=novel_id,
-                        query_text=current_volume_query,
-                        exclude_chapter_ids=[],
-                        limit=20,  # 获取前20个最相关的章节
-                        similarity_threshold=0.5  # 降低阈值，获取更多相关章节
-                    )
-                    
-                    # 按卷分组相关章节
-                    volume_chapters_map = {}
-                    for sim_ch in similar_chapters:
-                        # 获取章节所属的卷
-                        chapter_obj = task_db.query(Chapter).filter(Chapter.id == sim_ch["chapter_id"]).first()
-                        if chapter_obj:
-                            prev_vol_obj = task_db.query(Volume).filter(Volume.id == chapter_obj.volume_id).first()
-                            if prev_vol_obj and prev_vol_obj.volume_order < volume_index:
-                                vol_key = prev_vol_obj.id
-                                if vol_key not in volume_chapters_map:
-                                    volume_chapters_map[vol_key] = {
-                                        "title": prev_vol_obj.title,
-                                        "summary": prev_vol_obj.summary or "",
-                                        "chapters": []
-                                    }
-                                volume_chapters_map[vol_key]["chapters"].append({
-                                    "title": sim_ch.get("chapter_title", ""),
-                                    "summary": sim_ch.get("chapter_summary", ""),
-                                    "similarity": sim_ch.get("similarity", 0)
-                                })
-                    
-                    # 如果向量检索找到了相关章节，使用它们
-                    if volume_chapters_map:
-                        previous_volumes_info = list(volume_chapters_map.values())
-                        logger.info(f"使用向量数据库找到 {len(previous_volumes_info)} 个相关卷的章节")
-                    else:
-                        # 如果向量检索没找到，回退到获取所有前面卷的章节
-                        for prev_vol in previous_volumes:
-                            prev_chapters = task_db.query(Chapter).filter(
-                                Chapter.volume_id == prev_vol.id
-                            ).order_by(Chapter.chapter_order).all()
-                            
-                            previous_volumes_info.append({
-                                "title": prev_vol.title,
-                                "summary": prev_vol.summary or "",
-                                "chapters": [{
-                                    "title": ch.title,
-                                    "summary": ch.summary or ""
-                                } for ch in prev_chapters]
-                            })
-                except Exception as e:
-                    # 如果向量检索失败，回退到简单方法
-                    logger.warning(f"向量检索失败，使用简单方法: {str(e)}")
-                    for prev_vol in previous_volumes:
-                        prev_chapters = task_db.query(Chapter).filter(
-                            Chapter.volume_id == prev_vol.id
-                        ).order_by(Chapter.chapter_order).all()
-                        
-                        previous_volumes_info.append({
-                            "title": prev_vol.title,
-                            "summary": prev_vol.summary or "",
-                            "chapters": [{
-                                "title": ch.title,
-                                "summary": ch.summary or ""
-                            } for ch in prev_chapters]
-                        })
+                    Volume.volume_order == volume_index - 1
+                ).first()
+                if prev_volume:
+                    prev_chapters = task_db.query(Chapter).filter(
+                        Chapter.volume_id == prev_volume.id
+                    ).order_by(Chapter.chapter_order).all()
+                    # 只取上一卷最后若干章，减少噪声
+                    tail_chapters = prev_chapters[-12:] if len(prev_chapters) > 12 else prev_chapters
+                    previous_volumes_info.append({
+                        "title": prev_volume.title,
+                        "summary": prev_volume.summary or "",
+                        "chapters": [{
+                            "title": ch.title,
+                            "summary": ch.summary or ""
+                        } for ch in tail_chapters]
+                    })
             
             # 获取后续卷信息（用于避免把后续卷情节提前写进本卷）
             future_volumes_info = []
