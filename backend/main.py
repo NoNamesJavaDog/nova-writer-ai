@@ -275,9 +275,9 @@ async def get_novels(
     """获取用户的所有小说 - 优化版：不加载章节内容"""
     try:
         # 优化：使用selectinload代替joinedload，避免笛卡尔积
-        # 不加载chapters的content字段，减少内存占用
+        # 加载chapters但不包含content字段，减少内存占用
         novels = db.query(Novel).options(
-            selectinload(Novel.volumes),  # 不加载chapters
+            selectinload(Novel.volumes).selectinload(Volume.chapters),  # 加载chapters
             selectinload(Novel.characters),
             selectinload(Novel.world_settings),
             selectinload(Novel.timeline_events),
@@ -304,7 +304,13 @@ async def get_novels(
                     "volumeOrder": v.volume_order,
                     "createdAt": v.created_at,
                     "updatedAt": v.updated_at,
-                    "chapters": []  # 不返回章节列表，减少数据量
+                    "chapters": [{
+                        "id": ch.id,
+                        "title": ch.title,
+                        "summary": ch.summary or "",
+                        "content": "",  # 不返回章节内容，减少数据量
+                        "aiPromptHints": ch.ai_prompt_hints or "",
+                    } for ch in sorted(v.chapters, key=lambda c: c.chapter_order)]
                 } for v in novel.volumes], key=lambda x: x["volumeOrder"]),
                 "characters": [{
                     "id": c.id,
