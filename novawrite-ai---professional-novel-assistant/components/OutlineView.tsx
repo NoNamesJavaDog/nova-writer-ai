@@ -420,155 +420,85 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
     }
   };
 
-  // 一键写作本卷所有章节（优化版：支持同步向量存储和智能延迟）
+  // 一键写作本卷所有章节（后端任务：仅生成未写章节并存向量）
   const handleWriteAllChapters = async (volumeIndex: number) => {
+    if (!novel.id) {
+      alert("小说ID无效");
+      return;
+    }
+    
     if (!novel.volumes || volumeIndex >= novel.volumes.length) {
       alert('卷信息无效');
       return;
     }
     
     const volume = novel.volumes[volumeIndex];
+    if (!volume.id) {
+      alert('卷ID无效');
+      return;
+    }
+    
     if (!volume.chapters || volume.chapters.length === 0) {
       alert('请先生成章节列表！');
       return;
     }
     
-    // 筛选出没有内容的章节（需要生成的章节）
-    const chaptersToWrite = volume.chapters
-      .map((ch, idx) => ({ chapter: ch, index: idx }))
-      .filter(({ chapter }) => !chapter.content || !chapter.content.trim());
-    
-    if (chaptersToWrite.length === 0) {
-      alert('本卷所有章节都已生成内容！');
+    if (writingVolumeIdx !== null || loadingVolumeIdx !== null) {
       return;
     }
     
-    const chaptersWithContent = volume.chapters.length - chaptersToWrite.length;
-    if (chaptersWithContent > 0) {
-      addLog('info', `ℹ️ 本卷已有 ${chaptersWithContent} 个章节有内容，将跳过这些章节`);
-    }
-    
     setWritingVolumeIdx(volumeIndex);
-    setWritingProgress({ current: 0, total: chaptersToWrite.length });
     setShowConsole(true);
     setConsoleMinimized(false);
     clearLogs();
     
-    // 新增：预热向量存储（为已有内容的章节）
-    if (chaptersWithContent > 0) {
-      addLog('step', '🔥 预热向量存储：为已有章节建立语义索引...');
-      const { chapterApi } = await import('../services/apiService');
-      let preheatedCount = 0;
-      for (let i = 0; i < volume.chapters.length; i++) {
-        const chapter = volume.chapters[i];
-        if (chapter.content && chapter.content.trim() && chapter.id) {
-          try {
-            await chapterApi.storeEmbeddingSync(chapter.id);
-            preheatedCount++;
-          } catch (err) {
-            // 预热失败不影响主流程，只记录日志
-            console.warn(`预热章节 ${i + 1} 向量失败:`, err);
-          }
-        }
-      }
-      addLog('success', `✅ 向量预热完成：已为 ${preheatedCount} 个章节建立语义索引`);
-      addLog('info', '💡 现在开始批量生成，AI将能够获取更准确的上下文');
-    }
-    
     try {
-      addLog('step', `🚀 开始批量生成第 ${volumeIndex + 1} 卷《${volume.title}》的未写作章节...`);
-      addLog('info', `📚 共 ${chaptersToWrite.length} 个章节需要生成（跳过 ${chaptersWithContent} 个已有内容的章节）`);
-      addLog('info', '🧠 智能延迟策略：前3章间隔3秒（建立上下文），后续章节间隔1.5秒');
+      addLog('step', `🚀 正在调用后端批量生成第 ${volumeIndex + 1} 卷《${volume.title}》的未写作章节...`);
+      addLog('info', '💡 所有业务逻辑在后端完成，数据将直接保存到数据库并存储向量');
       
-      const updatedVolumes = [...novel.volumes];
-      let successCount = 0;
-      let failCount = 0;
-      let skippedCount = 0;
-      const { chapterApi } = await import('../services/apiService');
+      // 调用后端任务API
+      const { novelApi } = await import('../services/apiService');
+      const taskResult = await novelApi.writeVolumeChapters(novel.id, volume.id);
       
-      // 逐章生成（只生成没有内容的章节）
-      for (let i = 0; i < volume.chapters.length; i++) {
-        const chapter = volume.chapters[i];
-        
-        // 检查章节是否已有内容
-        if (chapter.content && chapter.content.trim()) {
-          skippedCount++;
-          addLog('info', `⏭️ [${i + 1}/${volume.chapters.length}] 跳过第 ${i + 1} 章《${chapter.title}》（已有内容）`);
-          continue;
-        }
-        
-        // 计算当前进度（基于需要生成的章节）
-        const currentProgress = chaptersToWrite.findIndex(({ index }) => index === i) + 1;
-        setWritingProgress({ current: currentProgress, total: chaptersToWrite.length });
-        
-        try {
-          addLog('step', `📝 [${currentProgress}/${chaptersToWrite.length}] 正在生成第 ${i + 1} 章《${chapter.title}》...`);
-          
-          // 创建流式传输回调
-          const onChunk = (chunk: string, isComplete: boolean) => {
-            if (isComplete) {
-              addLog('success', `✅ 第 ${i + 1} 章内容生成完成！`);
-            } else if (chunk) {
-              appendStreamChunk(chunk);
-            }
-          };
-          
-          const content = await writeChapterContent(novel, i, volumeIndex, onChunk);
-          
-          if (content && content.trim()) {
-            // 更新章节内容
-            updatedVolumes[volumeIndex].chapters[i].content = content;
-            updateNovel({ volumes: updatedVolumes });
-            successCount++;
-            addLog('info', `📄 第 ${i + 1} 章内容长度: ${content.length} 字符`);
+      if (!taskResult.task_id) {
+        throw new Error('任务创建失败：未返回任务ID');
+      }
+      
+      addLog('success', `✅ 任务已创建 (ID: ${taskResult.task_id})`);
+      addLog('info', '⏳ 正在后台生成，请等待...');
+      
+      // 轮询任务状态
+      const taskServiceModule = await import('../services/taskService');
+      const { startPolling } = taskServiceModule;
+      
+      await new Promise<void>((resolve, reject) => {
+        startPolling(taskResult.task_id, {
+          onProgress: (task) => {
+            const progress = task.progress || 0;
+            const message = task.progress_message || '处理中...';
+            addLog('info', `⏳ ${progress}% - ${message}`);
+          },
+          onComplete: async (task) => {
+            addLog('success', '✅ 章节批量生成完成！后端已自动保存并存储向量');
+            addLog('info', '🔄 正在重新加载最新数据...');
             
-            // 新增：同步存储向量（确保下一章能获取到上下文）
-            if (chapter.id) {
-              addLog('step', `🔄 正在存储第 ${i + 1} 章的语义向量...`);
-              try {
-                const result = await chapterApi.storeEmbeddingSync(chapter.id);
-                if (result.stored) {
-                  addLog('success', `✅ 第 ${i + 1} 章向量存储成功！`);
-                } else {
-                  addLog('info', `ℹ️ 第 ${i + 1} 章向量存储跳过：${result.message}`);
-                }
-              } catch (storeErr: any) {
-                addLog('warning', `⚠️ 第 ${i + 1} 章向量存储失败: ${storeErr?.message || '未知错误'}`);
-                addLog('info', '💡 继续生成下一章（向量将在后台异步存储）');
-              }
+            // 重新加载小说数据（后端已经保存）
+            if (loadNovels) {
+              await loadNovels();
+              addLog('success', '✅ 数据加载完成！');
             }
-          } else {
-            throw new Error('生成的内容为空');
-          }
-          
-          // 智能延迟策略：前3章间隔3秒，后续1.5秒
-          if (currentProgress < chaptersToWrite.length) {
-            const delay = currentProgress <= 3 ? 3000 : 1500;
-            addLog('info', `⏳ 等待 ${delay / 1000} 秒后继续生成下一章...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
-        } catch (err: any) {
-          failCount++;
-          addLog('error', `❌ 第 ${i + 1} 章生成失败: ${err?.message || '未知错误'}`);
-          // 继续生成下一章，不中断整个流程
-        }
-      }
+            
+            resolve();
+          },
+          onError: (task) => {
+            addLog('error', `❌ 任务失败: ${task.error_message || '未知错误'}`);
+            reject(new Error(task.error_message || '任务执行失败'));
+          },
+        });
+      });
       
-      // 最终统计
-      addLog('success', `\n🎉 批量生成完成！`);
-      addLog('info', `✅ 成功: ${successCount} 章`);
-      if (skippedCount > 0) {
-        addLog('info', `⏭️ 跳过: ${skippedCount} 章（已有内容）`);
-      }
-      if (failCount > 0) {
-        addLog('warning', `⚠️ 失败: ${failCount} 章`);
-        addLog('info', '💡 可以单独重新生成失败的章节');
-      }
-      
-      const summaryMessage = `批量生成完成！\n成功: ${successCount} 章\n${skippedCount > 0 ? `跳过: ${skippedCount} 章（已有内容）\n` : ''}${failCount > 0 ? `失败: ${failCount} 章` : ''}`;
-      alert(summaryMessage);
     } catch (err: any) {
-      addLog('error', `❌ 批量生成过程中出现错误: ${err?.message || '未知错误'}`);
+      addLog('error', `❌ 批量生成失败: ${err?.message || '未知错误'}`);
       alert(`批量生成失败：${err?.message || '未知错误'}`);
     } finally {
       setWritingVolumeIdx(null);

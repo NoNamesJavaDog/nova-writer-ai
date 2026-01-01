@@ -67,6 +67,7 @@ from services.vector_helper import (
     store_chapter_embedding_async, store_character_embedding,
     store_world_setting_embedding
 )
+from services.embedding_service import EmbeddingService
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -2090,6 +2091,166 @@ async def write_chapter(
             "X-Accel-Buffering": "no"
         }
     )
+
+@app.post("/api/novels/{novel_id}/volumes/{volume_id}/write-all-chapters")
+async def write_all_chapters_in_volume(
+    novel_id: str,
+    volume_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    一键写作某卷内所有未生成内容的章节（后端执行业务逻辑）
+    - 仅生成 content 为空的章节；已有内容的章节自动跳过
+    - 生成完成后自动存储章节向量
+    """
+    novel = db.query(Novel).filter(Novel.id == novel_id, Novel.user_id == current_user.id).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+
+    volume = db.query(Volume).filter(Volume.id == volume_id, Volume.novel_id == novel_id).first()
+    if not volume:
+        raise HTTPException(status_code=404, detail="卷不存在")
+
+    chapters = db.query(Chapter).filter(Chapter.volume_id == volume_id).order_by(Chapter.chapter_order).all()
+    if not chapters:
+        raise HTTPException(status_code=400, detail="该卷没有章节，请先生成章节列表")
+
+    # 创建任务
+    task = create_task(
+        db=db,
+        novel_id=novel_id,
+        user_id=current_user.id,
+        task_type="write_volume_chapters",
+        task_data={
+            "volume_id": volume_id,
+            "volume_title": volume.title,
+            "chapter_total": len(chapters),
+        }
+    )
+
+    def execute_write_volume():
+        task_db = SessionLocal()
+        try:
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "running"
+                task_obj.started_at = int(time.time() * 1000)
+                task_db.commit()
+
+            novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
+            volume_obj = task_db.query(Volume).filter(Volume.id == volume_id).first()
+            if not novel_obj or not volume_obj:
+                raise Exception("小说或卷不存在")
+
+            # 预取角色/世界观，供章节生成使用
+            characters = task_db.query(Character).filter(Character.novel_id == novel_id).all()
+            world_settings = task_db.query(WorldSetting).filter(WorldSetting.novel_id == novel_id).all()
+
+            need_write = [ch for ch in chapters if not (ch.content or "").strip()]
+            skipped = len(chapters) - len(need_write)
+
+            if not need_write:
+                if task_obj:
+                    task_obj.status = "completed"
+                    task_obj.progress = 100
+                    task_obj.progress_message = "本卷所有章节已有内容，未执行生成"
+                    task_obj.result = json.dumps({
+                        "written": 0,
+                        "skipped": skipped,
+                        "volume_id": volume_id,
+                        "volume_title": volume_obj.title
+                    })
+                    task_obj.completed_at = int(time.time() * 1000)
+                    task_db.commit()
+                return
+
+            total_to_write = len(need_write)
+            written = 0
+            failed = 0
+            embedding_service = EmbeddingService()
+
+            for idx, chapter in enumerate(chapters):
+                if (chapter.content or "").strip():
+                    continue
+
+                progress = int((written + failed) / total_to_write * 100)
+                if task_obj:
+                    task_obj.progress = progress
+                    task_obj.progress_message = f"生成第 {idx + 1} 章：{chapter.title}"
+                    task_db.commit()
+
+                try:
+                    content = write_chapter_content_impl(
+                        novel_title=novel_obj.title,
+                        genre=novel_obj.genre,
+                        synopsis=novel_obj.synopsis or "",
+                        chapter_title=chapter.title,
+                        chapter_summary=chapter.summary or "",
+                        chapter_prompt_hints=chapter.ai_prompt_hints or "",
+                        characters=[{"name": c.name, "personality": c.personality} for c in characters],
+                        world_settings=[{"title": w.title, "description": w.description} for w in world_settings],
+                        previous_chapters_context=None,
+                        novel_id=novel_id,
+                        current_chapter_id=chapter.id,
+                        db_session=task_db
+                    )
+
+                    chapter.content = content
+                    chapter.updated_at = int(time.time() * 1000)
+                    task_db.commit()
+
+                    # 同步存储向量
+                    try:
+                        embedding_service.store_chapter_embedding(
+                            db=task_db,
+                            chapter_id=chapter.id,
+                            novel_id=novel_id,
+                            content=content
+                        )
+                    except Exception as e:
+                        logger.warning(f"章节 {chapter.id} 向量存储失败（继续下一章）: {str(e)}")
+
+                    written += 1
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"生成章节失败: chapter_id={chapter.id}, error={str(e)}", exc_info=True)
+                    task_db.rollback()
+                    continue
+
+            if task_obj:
+                task_obj.status = "completed"
+                task_obj.progress = 100
+                task_obj.progress_message = f"写作完成：成功 {written}，失败 {failed}，跳过 {skipped}"
+                task_obj.result = json.dumps({
+                    "written": written,
+                    "failed": failed,
+                    "skipped": skipped,
+                    "volume_id": volume_id,
+                    "volume_title": volume_obj.title
+                })
+                task_obj.completed_at = int(time.time() * 1000)
+                task_db.commit()
+        except Exception as e:
+            task_db.rollback()
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "failed"
+                task_obj.error_message = str(e)
+                task_obj.completed_at = int(time.time() * 1000)
+                task_db.commit()
+            logger.error(f"一键写作本卷失败: {str(e)}", exc_info=True)
+        finally:
+            task_db.close()
+
+    executor = get_task_executor()
+    executor.submit(execute_write_volume)
+
+    return {
+        "task_id": task.id,
+        "status": "pending",
+        "message": "任务已创建，正在后台生成本卷章节内容"
+    }
 
 @app.post("/api/ai/generate-characters")
 async def generate_characters_endpoint(

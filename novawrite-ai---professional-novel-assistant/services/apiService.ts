@@ -498,6 +498,13 @@ export const novelApi = {
       method: 'DELETE',
     });
   },
+
+  // 一键写作某卷全部未写作章节（后端任务）
+  writeVolumeChapters: async (novelId: string, volumeId: string): Promise<{ task_id: string }> => {
+    return apiRequest<{ task_id: string }>(`/api/novels/${novelId}/volumes/${volumeId}/write-all-chapters`, {
+      method: 'POST',
+    });
+  },
   
   // 完整同步小说（包括所有子项）
   // 注意：现在使用后端的同步接口，更高效且保证数据一致性
