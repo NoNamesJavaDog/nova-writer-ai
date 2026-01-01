@@ -55,7 +55,7 @@ from schemas import (
 from pydantic import BaseModel
 from captcha import generate_captcha, verify_captcha, check_login_status
 from gemini_service import (
-    generate_full_outline, generate_volume_outline_stream, generate_volume_outline,
+    generate_full_outline, generate_volume_outline_stream, generate_volume_outline as generate_volume_outline_impl,
     generate_chapter_outline as generate_chapter_outline_impl, write_chapter_content_stream,
     generate_characters, generate_world_settings, generate_timeline_events,
     generate_foreshadowings_from_outline, modify_outline_by_dialogue,
@@ -2693,7 +2693,7 @@ async def generate_volume_outline_task(
             progress.update(10, f"开始生成第 {volume_index + 1} 卷《{volume_obj.title}》的详细大纲...")
             
             # 生成卷大纲
-            volume_outline = generate_volume_outline(
+            volume_outline = generate_volume_outline_impl(
                 novel_title=novel_obj.title,
                 full_outline=novel_obj.full_outline or "",
                 volume_title=volume_obj.title,
