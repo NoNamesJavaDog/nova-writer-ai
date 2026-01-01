@@ -2815,6 +2815,27 @@ async def generate_chapters_task(
             volume_obj = task_db.query(Volume).filter(Volume.id == volume.id).first()
             if not volume_obj:
                 raise Exception("卷不存在")
+
+            # 创建进度回调
+            progress = ProgressCallback(task.id)
+            progress.update(5, f"准备生成第 {volume_index + 1} 卷《{volume_obj.title}》的章节列表...")
+
+            # 强制确保存在“卷详细大纲”：没有卷大纲时，章节列表容易串卷/重复
+            if not (volume_obj.outline or "").strip():
+                progress.update(8, "检测到本卷尚未生成卷大纲，正在自动生成卷详细大纲以约束章节范围...")
+                volume_outline = generate_volume_outline_impl(
+                    novel_title=novel_obj.title,
+                    full_outline=novel_obj.full_outline or "",
+                    volume_title=volume_obj.title,
+                    volume_summary=volume_obj.summary or "",
+                    characters=[{"name": c.name, "role": c.role} for c in task_db.query(Character).filter(Character.novel_id == novel_id).all()],
+                    volume_index=volume_index,
+                    progress_callback=progress
+                )
+                volume_obj.outline = volume_outline
+                volume_obj.updated_at = int(time.time() * 1000)
+                task_db.commit()
+                progress.update(12, "卷详细大纲已自动生成并保存")
             
             # 获取角色信息
             characters = task_db.query(Character).filter(
@@ -2909,9 +2930,23 @@ async def generate_chapters_task(
                             } for ch in prev_chapters]
                         })
             
-            # 创建进度回调
-            progress = ProgressCallback(task.id)
-            progress.update(10, f"开始生成第 {volume_index + 1} 卷《{volume_obj.title}》的章节列表...")
+            # 获取后续卷信息（用于避免把后续卷情节提前写进本卷）
+            future_volumes_info = []
+            try:
+                next_volumes = task_db.query(Volume).filter(
+                    Volume.novel_id == novel_id,
+                    Volume.volume_order > volume_index
+                ).order_by(Volume.volume_order).limit(3).all()
+                for next_vol in next_volumes:
+                    future_volumes_info.append({
+                        "title": next_vol.title,
+                        "summary": next_vol.summary or "",
+                        "outline": (next_vol.outline or "")[:1200]
+                    })
+            except Exception as e:
+                logger.warning(f"获取后续卷信息失败（继续生成章节）：{str(e)}")
+
+            progress.update(15, f"开始生成第 {volume_index + 1} 卷《{volume_obj.title}》的章节列表...")
             
             # 生成章节列表
             chapters_data = generate_chapter_outline_impl(
@@ -2924,7 +2959,8 @@ async def generate_chapters_task(
                 characters=characters_data,
                 volume_index=volume_index,
                 chapter_count=chapter_count,
-                previous_volumes_info=previous_volumes_info if previous_volumes_info else None
+                previous_volumes_info=previous_volumes_info if previous_volumes_info else None,
+                future_volumes_info=future_volumes_info if future_volumes_info else None
             )
             
             progress.update(80, f"已生成 {len(chapters_data)} 个章节，正在保存到数据库...")

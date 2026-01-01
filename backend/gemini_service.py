@@ -229,7 +229,8 @@ def generate_chapter_outline(
     characters: list,
     volume_index: int,
     chapter_count: Optional[int] = None,
-    previous_volumes_info: Optional[list] = None
+    previous_volumes_info: Optional[list] = None,
+    future_volumes_info: Optional[list] = None
 ) -> list:
     """生成章节列表"""
     try:
@@ -271,7 +272,7 @@ def generate_chapter_outline(
 8. 章节数量应在合理范围内（建议6-30章）"""
         
         volume_desc = f"卷描述：{volume_summary[:200]}" if volume_summary else ""
-        volume_outline_text = f"卷详细大纲：{volume_outline[:1500]}" if volume_outline else ""
+        volume_outline_text = f"卷详细大纲：{volume_outline[:2500]}" if volume_outline else ""
         
         # 构建前面卷的参考信息（用于确保连贯性）
         previous_volumes_section = ""
@@ -286,10 +287,32 @@ def generate_chapter_outline(
                 if prev_vol_summary:
                     previous_volumes_section += f"  卷描述：{prev_vol_summary[:200]}\n"
                 if prev_chapters:
-                    chapter_titles = [ch.get("title", "") for ch in prev_chapters[:10]]  # 只取前10个章节
-                    previous_volumes_section += f"  章节列表：{'、'.join(chapter_titles)}\n"
+                    previous_volumes_section += "  已发生章节（标题 - 摘要，避免重复）：\n"
+                    for ch in prev_chapters[:12]:
+                        ch_title = ch.get("title", "")
+                        ch_summary = (ch.get("summary", "") or "")[:120]
+                        if ch_title and ch_summary:
+                            previous_volumes_section += f"   - {ch_title}：{ch_summary}\n"
+                        elif ch_title:
+                            previous_volumes_section += f"   - {ch_title}\n"
             
-            previous_volumes_section += "\n⚠️ 注意：参考前面卷的信息是为了确保情节连贯，但不要重复前面卷的内容！\n"
+            previous_volumes_section += "\n重要：你必须承接这些已发生事件，但不要重复同类冲突/同一事件的再讲一遍。\n"
+
+        # 构建后续卷的“禁止提前”信息（用于避免串到后面卷）
+        future_volumes_section = ""
+        if future_volumes_info:
+            future_volumes_section = "\n【后续卷规划（禁止提前使用）】\n"
+            for next_vol in future_volumes_info[:3]:
+                next_title = next_vol.get("title", "")
+                next_summary = (next_vol.get("summary", "") or "")[:240]
+                next_outline = (next_vol.get("outline", "") or "")[:500]
+                if next_title:
+                    future_volumes_section += f"\n{next_title}：\n"
+                    if next_summary:
+                        future_volumes_section += f"  规划简介：{next_summary}\n"
+                    if next_outline:
+                        future_volumes_section += f"  规划要点（摘要）：{next_outline}\n"
+            future_volumes_section += "\n重要：以上内容仅用于“避雷”。本卷不得出现这些卷的主要事件、关键反转或结局信息。\n"
         
         prompt = f"""基于以下信息，为第 {volume_index + 1} 卷《{volume_title}》生成章节列表：
 
@@ -301,6 +324,7 @@ def generate_chapter_outline(
 标题：{novel_title}
 类型：{genre}
 {previous_volumes_section}
+{future_volumes_section}
 【本卷详细信息】（这是你需要生成章节的依据）
 {volume_desc}
 {volume_outline_text}{word_count_info}
@@ -312,8 +336,11 @@ def generate_chapter_outline(
 {chapter_count_instruction}
 
 【重要约束】
+- 每一章必须能在“卷详细大纲”中找到对应的情节点/段落依据（不允许编造后续卷事件）
 - 章节标题和摘要必须只涉及本卷的内容，绝对不要包含后续卷的情节
-- 不得包含后续卷的剧情预告、情节铺垫或结局暗示
+- 不得包含后续卷的剧情预告、情节铺垫或结局暗示（包括“下一卷/未来/终局/最终BOSS”等）
+- 章节顺序必须体现本卷内部的递进：引入矛盾 → 升级推进 → 高潮/关键转折 → 收束
+- 本卷的主要冲突应在本卷内闭合；允许留下“轻微悬念”，但不得把下一卷主线提前展开
 - 每个章节都应该是本卷的独立故事单元
 - 章节的结尾应该是本卷的情节收束，不要为后续卷埋下伏笔
 - 如果本卷大纲中提到了后续卷的内容，请忽略它们，只关注本卷的描述
@@ -329,7 +356,7 @@ def generate_chapter_outline(
 - 配角的故事线或背景补充
 - 情感线的推进（友情、亲情、爱情等）
 - 小冲突的解决或新矛盾的引入（但必须是本卷能解决的）
-⚠️ 重要：支线剧情必须在当前卷的时间范围内，不能是后续卷的内容，也不能重复前面卷已经发生的情节。
+重要：支线剧情必须在当前卷的时间范围内，不能是后续卷的内容，也不能重复前面卷已经发生的情节。
 
 仅返回 JSON 数组，每个对象包含以下键："title"（标题）、"summary"（摘要）、"aiPromptHints"（AI提示）。"""
         

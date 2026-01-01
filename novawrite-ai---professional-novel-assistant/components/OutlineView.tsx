@@ -179,6 +179,9 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
       const volume = novel.volumes[volumeIndex];
       addLog('step', `🚀 正在调用后端生成第 ${volumeIndex + 1} 卷《${volume.title}》的章节列表...`);
       addLog('info', '💡 所有业务逻辑在后端完成，数据将直接保存到数据库');
+      if (!volume.outline || !volume.outline.trim()) {
+        addLog('warning', '⚠️ 当前卷还没有“卷详细大纲”，直接生成章节容易出现串卷/重复；后端会自动补全卷大纲后再生成章节。');
+      }
       if (chapterCount) {
         addLog('info', `📊 指定章节数量: ${chapterCount} 章`);
       }
