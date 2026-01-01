@@ -2438,6 +2438,16 @@ async def generate_complete_outline(
             
             current_time = int(time.time() * 1000)
             
+            # 清理旧数据，避免重复生成时数据累积
+            logger.info("清理旧的大纲数据...")
+            task_db.query(Volume).filter(Volume.novel_id == novel_id).delete()
+            task_db.query(Character).filter(Character.novel_id == novel_id).delete()
+            task_db.query(WorldSetting).filter(WorldSetting.novel_id == novel_id).delete()
+            task_db.query(TimelineEvent).filter(TimelineEvent.novel_id == novel_id).delete()
+            task_db.query(Foreshadowing).filter(Foreshadowing.novel_id == novel_id).delete()
+            task_db.commit()
+            logger.info("旧数据清理完成")
+            
             # 1. 生成完整大纲和卷结构（20%）
             logger.info("步骤 1/6: 生成完整大纲和卷结构")
             update_task_progress(task_db, task.id, 5, "正在生成完整大纲...")
