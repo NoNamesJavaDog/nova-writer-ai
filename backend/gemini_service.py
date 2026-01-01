@@ -247,7 +247,17 @@ def generate_chapter_outline(
         
         chapter_count_instruction = ""
         if chapter_count:
-            chapter_count_instruction = f"请为本卷生成 {chapter_count} 个章节。"
+            chapter_count_instruction = f"""请为本卷生成 {chapter_count} 个章节。
+
+【章节生成策略】
+1. 首先基于卷大纲中的主线剧情生成章节（优先覆盖卷大纲中的所有主要情节点）
+2. 如果主线剧情生成的章节数不足 {chapter_count} 个，请补充支线剧情章节来凑足数量
+3. 支线剧情章节应该：
+   - 与主线剧情相关，但不能是后续卷的内容
+   - 可以是角色互动、日常描写、世界观展示、配角故事等
+   - 必须在当前卷的时间线和故事范围内
+   - 应该丰富故事的层次感，不要显得突兀
+4. 最终生成的章节总数必须达到 {chapter_count} 个"""
         else:
             chapter_count_instruction = """请仔细分析本卷的详细大纲，根据以下原则确定合适的章节数量并生成章节列表：
 章节数量应该：
@@ -257,7 +267,8 @@ def generate_chapter_outline(
 4. 如果大纲中有字数规划，按照每章5000-8000字的标准计算章节数
 5. 如果大纲中明确提到了章节数，请参考该数量
 6. 如果大纲中没有明确提到，请根据情节结构合理分配（通常每章对应一个主要事件或情节转折点）
-7. 章节数量应在合理范围内（建议6-30章）"""
+7. 如果基于主线剧情确定的章节数偏少，可以适当增加支线剧情章节（角色互动、日常描写、世界观展示等）来丰富内容
+8. 章节数量应在合理范围内（建议6-30章）"""
         
         volume_desc = f"卷描述：{volume_summary[:200]}" if volume_summary else ""
         volume_outline_text = f"卷详细大纲：{volume_outline[:1500]}" if volume_outline else ""
@@ -301,7 +312,7 @@ def generate_chapter_outline(
 {chapter_count_instruction}
 
 【重要约束】
-- 章节标题和摘要必须只涉及本卷的内容
+- 章节标题和摘要必须只涉及本卷的内容，绝对不要包含后续卷的情节
 - 不得包含后续卷的剧情预告、情节铺垫或结局暗示
 - 每个章节都应该是本卷的独立故事单元
 - 章节的结尾应该是本卷的情节收束，不要为后续卷埋下伏笔
@@ -309,6 +320,16 @@ def generate_chapter_outline(
 {f"- 必须与前面卷的情节保持连贯，承接前面卷的故事发展" if volume_index > 0 else ""}
 {f"- 不要重复前面卷已经发生的情节和事件" if volume_index > 0 else ""}
 {f"- 本卷章节应该是在前面卷基础上的自然延续和发展" if volume_index > 0 else ""}
+
+【支线剧情使用说明】
+如果主线剧情章节数量不够，可以使用以下类型的支线剧情章节来补充：
+- 角色日常互动、对话场景
+- 角色心理描写、回忆片段
+- 世界观细节展示（环境、规则、历史等）
+- 配角的故事线或背景补充
+- 情感线的推进（友情、亲情、爱情等）
+- 小冲突的解决或新矛盾的引入（但必须是本卷能解决的）
+⚠️ 重要：支线剧情必须在当前卷的时间范围内，不能是后续卷的内容，也不能重复前面卷已经发生的情节。
 
 仅返回 JSON 数组，每个对象包含以下键："title"（标题）、"summary"（摘要）、"aiPromptHints"（AI提示）。"""
         
@@ -353,6 +374,47 @@ def write_chapter_content_stream(
         characters_text = "；".join([f"{c.get('name', '')}：{c.get('personality', '')}" for c in characters]) if characters else "暂无"
         world_text = "；".join([f"{w.get('title', '')}：{w.get('description', '')}" for w in world_settings]) if world_settings else "暂无"
         
+        # 获取当前卷信息（用于限制内容范围）
+        current_volume_info = None
+        current_volume_index = None
+        if novel_id and db_session:
+            try:
+                from sqlalchemy.orm import Session
+                from models import Chapter, Volume
+                
+                # 尝试通过chapter_id查找所属的卷
+                if current_chapter_id:
+                    chapter_obj = db_session.query(Chapter).filter(Chapter.id == current_chapter_id).first()
+                    if chapter_obj:
+                        volume_obj = db_session.query(Volume).filter(Volume.id == chapter_obj.volume_id).first()
+                        if volume_obj:
+                            current_volume_info = {
+                                "title": volume_obj.title,
+                                "summary": volume_obj.summary or "",
+                                "outline": volume_obj.outline or "",
+                                "volume_index": volume_obj.volume_order
+                            }
+                            current_volume_index = volume_obj.volume_order
+                else:
+                    # 如果沒有chapter_id，尝试通过章节标题查找（模糊匹配）
+                    chapter_obj = db_session.query(Chapter).join(Volume).filter(
+                        Volume.novel_id == novel_id,
+                        Chapter.title.like(f"%{chapter_title}%")
+                    ).first()
+                    if chapter_obj:
+                        volume_obj = db_session.query(Volume).filter(Volume.id == chapter_obj.volume_id).first()
+                        if volume_obj:
+                            current_volume_info = {
+                                "title": volume_obj.title,
+                                "summary": volume_obj.summary or "",
+                                "outline": volume_obj.outline or "",
+                                "volume_index": volume_obj.volume_order
+                            }
+                            current_volume_index = volume_obj.volume_order
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"⚠️  获取卷信息失败: {str(e)}")
+        
         # 新增：使用向量检索获取智能上下文（如果提供了 novel_id 和 db_session）
         if novel_id and db_session:
             try:
@@ -377,8 +439,15 @@ def write_chapter_content_stream(
                     import logging
                     logging.getLogger(__name__).warning(f"⚠️  相似度检查失败（继续生成）: {str(e)}")
                 
-                # 获取智能上下文（增加到5章以提供更丰富的上下文，避免重复）
+                # 获取智能上下文（只获取当前卷及之前卷的章节，避免后续卷内容干扰）
                 checker = ConsistencyChecker()
+                # 如果有当前卷信息，只查找当前卷及之前卷的章节
+                exclude_volume_indices = None
+                if current_volume_index is not None:
+                    # 排除后续卷的章节（通过查询时排除volume_order > current_volume_index的章节）
+                    # 这需要在find_similar_chapters中实现，暂时先获取所有，后续优化
+                    pass
+                
                 smart_context = checker.get_relevant_context_text(
                     db=db_session,
                     novel_id=novel_id,
