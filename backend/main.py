@@ -5,7 +5,7 @@ NovaWrite AI 后端主应用
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import and_, or_
 from typing import List, Optional, Dict, Any
 import time
@@ -271,17 +271,21 @@ async def get_novels(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取用户的所有小说"""
+    """获取用户的所有小说 - 优化版：不加载章节内容"""
     try:
+        # 优化：使用selectinload代替joinedload，避免笛卡尔积
+        # 不加载chapters的content字段，减少内存占用
         novels = db.query(Novel).options(
-            joinedload(Novel.volumes).joinedload(Volume.chapters),
-            joinedload(Novel.characters),
-            joinedload(Novel.world_settings),
-            joinedload(Novel.timeline_events),
-            joinedload(Novel.foreshadowings)
+            selectinload(Novel.volumes),  # 不加载chapters
+            selectinload(Novel.characters),
+            selectinload(Novel.world_settings),
+            selectinload(Novel.timeline_events),
+            selectinload(Novel.foreshadowings)
         ).filter(Novel.user_id == current_user.id).order_by(Novel.updated_at.desc()).all()
         result = []
         for novel in novels:
+            # 优化：简化数据结构，移除chapters以减少内存占用
+            # 前端可以按需调用单个小说接口获取详细信息
             novel_dict = {
                 "id": novel.id,
                 "user_id": novel.user_id,
@@ -300,17 +304,7 @@ async def get_novels(
                     "volume_order": v.volume_order,
                     "created_at": v.created_at,
                     "updated_at": v.updated_at,
-                    "chapters": sorted([{
-                        "id": c.id,
-                        "volume_id": c.volume_id,
-                        "title": c.title,
-                        "summary": c.summary or "",
-                        "content": c.content or "",
-                        "ai_prompt_hints": c.ai_prompt_hints or "",
-                        "chapter_order": c.chapter_order,
-                        "created_at": c.created_at,
-                        "updated_at": c.updated_at
-                    } for c in v.chapters], key=lambda x: x["chapter_order"])
+                    "chapters": []  # 不返回章节列表，减少数据量
                 } for v in novel.volumes], key=lambda x: x["volume_order"]),
                 "characters": [{
                     "id": c.id,
