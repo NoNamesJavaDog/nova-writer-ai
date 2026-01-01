@@ -25,13 +25,82 @@ def generate_full_outline(
     try:
         if progress_callback:
             progress_callback.update(10, "开始生成完整大纲...")
-        
+
+        def ensure_text_length_range(
+            text: str,
+            *,
+            min_chars: int,
+            max_chars: int,
+            title: str,
+            genre: str,
+            synopsis: str,
+            progress_callback=None
+        ) -> str:
+            """确保文本长度处于范围内；过短则扩写，过长则压缩。"""
+            if not text:
+                text = ""
+
+            def within_range(s: str) -> bool:
+                return min_chars <= len(s) <= max_chars
+
+            # 最多做两次修正，避免死循环
+            for attempt in range(2):
+                if within_range(text):
+                    return text
+
+                is_too_short = len(text) < min_chars
+                if progress_callback:
+                    action = "扩写" if is_too_short else "压缩"
+                    progress_callback.update(
+                        20 + attempt * 10,
+                        f"正在按字数要求{action}大纲（目标 {min_chars}-{max_chars} 字）..."
+                    )
+
+                refine_prompt = f"""你是资深小说总编剧。请对下面的大纲进行“{('扩写' if is_too_short else '压缩')}与整理”，并严格满足字数范围要求。
+
+【硬性字数要求】
+- 最终输出必须在 {min_chars}-{max_chars} 字之间（以字符数近似计算）
+- 必须少于等于 {max_chars} 字
+
+【内容要求】
+- 保留并强化可指导分卷/分章的细节：因果链、转折点、角色抉择、关键事件、伏笔与回收
+- 保持结构清晰（分级标题/编号列表）
+- 不要输出任何解释、前后对比、或统计信息，只输出最终大纲正文
+
+【小说信息】
+标题：{title}
+类型：{genre}
+初始创意：{synopsis}
+
+【当前大纲】
+{text}
+"""
+
+                refine_response = client.models.generate_content(
+                    model="gemini-3-pro-preview",
+                    contents=refine_prompt,
+                    config={
+                        "temperature": 0.3,
+                        "max_output_tokens": 8192,
+                    },
+                )
+
+                text = refine_response.text if refine_response.text else text
+
+            # 兜底：仍然过长则硬截断（尽量保证不超标）
+            if len(text) > max_chars:
+                return text[:max_chars]
+            return text
+
         # 生成完整大纲
         outline_prompt = f"""你是一名资深小说策划与总编剧，请为小说《{title}》创作“尽可能详细、可直接指导分卷与分章”的完整大纲。
 
 【作品信息】
 类型：{genre}
 一句话/初始创意：{synopsis}
+
+【字数要求】
+- 最终输出控制在 6000-10000 字之间（不得超过 10000 字）
 
 【输出要求（越详细越好）】
 1) 故事核心（不超过200字）
@@ -69,6 +138,15 @@ def generate_full_outline(
         )
         
         full_outline = response.text if response.text else ""
+        full_outline = ensure_text_length_range(
+            full_outline,
+            min_chars=6000,
+            max_chars=10000,
+            title=title,
+            genre=genre,
+            synopsis=synopsis,
+            progress_callback=progress_callback
+        )
         
         if progress_callback:
             progress_callback.update(50, "完整大纲生成完成，开始生成卷结构...")
