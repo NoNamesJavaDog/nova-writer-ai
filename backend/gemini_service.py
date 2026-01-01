@@ -946,11 +946,56 @@ def modify_outline_by_dialogue(
     try:
         if progress_callback:
             progress_callback.update(10, "开始分析修改请求...")
+
+        def parse_requested_volume_count(message: str) -> Optional[int]:
+            if not message:
+                return None
+            import re
+            patterns = [
+                r"(?:增加|新增|扩展|添加|补充|改为|改成|调整为|变为)\s*(\d{1,3})\s*(?:个)?\s*卷",
+                r"(\d{1,3})\s*(?:个)?\s*卷",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, message)
+                if match:
+                    try:
+                        value = int(match.group(1))
+                        if 1 <= value <= 200:
+                            return value
+                    except Exception:
+                        continue
+            return None
+
+        def volumes_have_range_titles(volumes: list) -> bool:
+            import re
+            range_pattern = re.compile(r"(?:卷)?[一二三四五六七八九十0-9]+(?:至|到|~|～|—|-)[一二三四五六七八九十0-9]+")
+            for v in volumes:
+                if not isinstance(v, dict):
+                    continue
+                title_text = (v.get("title") or "").strip()
+                if not title_text:
+                    continue
+                if "至" in title_text or "到" in title_text or "-" in title_text or "~" in title_text or "～" in title_text or "—" in title_text:
+                    if range_pattern.search(title_text):
+                        return True
+            return False
+
+        requested_volume_count = parse_requested_volume_count(user_message)
         
         # 构建提示词
         characters_text = "；".join([f"{c.get('name', '')}（{c.get('role', '')}）：{c.get('personality', '')}" for c in characters[:10]]) if characters else "暂无"
         world_text = "；".join([f"{w.get('title', '')}（{w.get('category', '')}）：{w.get('description', '')[:100]}" for w in world_settings[:10]]) if world_settings else "暂无"
         timeline_text = "；".join([f"[{t.get('time', '')}] {t.get('event', '')}" for t in timeline[:10]]) if timeline else "暂无"
+
+        volume_count_constraint = ""
+        if requested_volume_count:
+            volume_count_constraint = f"""
+
+【卷数量硬约束】
+用户要求卷数为 {requested_volume_count} 卷。
+如果需要输出 "volumes"，必须严格输出 {requested_volume_count} 个卷对象，不能少、不能多。
+严禁把多个卷合并成一个卷名（例如“卷十一至二十”“第11-20卷”等范围卷名）。
+每一卷必须是一个独立条目，title 必须是单卷名称，summary 为该卷简介（50-120字）。"""
         
         prompt = f"""你是一名资深小说编辑，用户想要修改小说《{title}》的大纲。
 
@@ -980,6 +1025,7 @@ def modify_outline_by_dialogue(
 5. 如果涉及到世界观的修改，生成更新后的世界观设定列表（JSON数组格式）
 6. 如果涉及到时间线的调整，生成更新后的时间线事件列表（JSON数组格式）
 7. 生成一个变更说明列表（JSON数组，每个元素是一个变更描述字符串）
+{volume_count_constraint}
 
 请以 JSON 格式返回，包含以下字段：
 - "outline": 修改后的完整大纲（字符串）
@@ -1031,6 +1077,54 @@ def modify_outline_by_dialogue(
             result["timeline"] = None
         if "changes" not in result or not isinstance(result.get("changes"), list):
             result["changes"] = []
+
+        # 卷列表校验与修复：避免“卷十一至二十”这种范围卷名以及卷数不符合用户要求
+        if requested_volume_count:
+            volumes = result.get("volumes")
+            if volumes is not None and isinstance(volumes, list):
+                if len(volumes) != requested_volume_count or volumes_have_range_titles(volumes):
+                    if progress_callback:
+                        progress_callback.update(78, "检测到卷列表不符合要求，正在自动修复卷数量/卷命名...")
+
+                    fix_prompt = f"""用户要求把《{title}》的卷结构调整为 {requested_volume_count} 卷。
+
+你将收到当前模型给出的卷列表（可能数量不对，或出现“卷十一至二十”这类范围卷名）。
+你的任务是：输出严格满足要求的新卷列表（JSON数组）。
+
+硬约束：
+1. 必须严格输出 {requested_volume_count} 个对象
+2. 每个对象必须包含 "title" 与 "summary"
+3. title 必须是单卷名称，严禁范围/合并卷名（例如“第11-20卷”“卷十一至二十”等）
+4. 卷与卷之间要有清晰递进，summary 50-120字
+
+当前卷列表（待修复）：
+{json.dumps(volumes, ensure_ascii=False)}
+
+只返回 JSON 数组，不要输出其他文字。"""
+
+                    fix_response = client.models.generate_content(
+                        model="gemini-3-pro-preview",
+                        contents=fix_prompt,
+                        config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.2,
+                            "max_output_tokens": 8192,
+                        },
+                    )
+
+                    if not fix_response.text:
+                        raise Exception("卷列表修复失败：API 返回空响应")
+
+                    fixed_volumes = json.loads(fix_response.text)
+                    if not isinstance(fixed_volumes, list):
+                        raise Exception("卷列表修复失败：返回格式不是 JSON 数组")
+                    if len(fixed_volumes) != requested_volume_count:
+                        raise Exception(f"卷列表修复失败：期望 {requested_volume_count} 卷，实际 {len(fixed_volumes)} 卷")
+                    if volumes_have_range_titles(fixed_volumes):
+                        raise Exception("卷列表修复失败：仍包含范围卷名")
+
+                    result["volumes"] = fixed_volumes
+                    result["changes"].append(f"已按用户要求将卷结构规范为 {requested_volume_count} 卷，并修复卷命名/数量不一致问题")
         
         if progress_callback:
             progress_callback.update(100, "修改方案生成完成")
