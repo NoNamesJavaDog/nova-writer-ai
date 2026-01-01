@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Novel, Chapter, Volume } from '../types';
 import { Sparkles, Plus, Trash2, ListTree, BookOpen, FileText, MessageCircle } from 'lucide-react';
-import { generateChapterOutline, writeChapterContent } from '../services/geminiService';
+import { writeChapterContent } from '../services/geminiService';
 import Console, { LogEntry } from './Console';
 import OutlineChat from './OutlineChat';
 
@@ -143,15 +143,8 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
 
   // 生成指定卷的章节列表
   const handleGenChapters = async (volumeIndex: number) => {
-    console.log(`🔍 点击了生成第 ${volumeIndex + 1} 卷章节按钮`);
-    
-    if (!novel.fullOutline) {
-      alert("请先生成完整大纲！");
-      return;
-    }
-    
-    if (!novel.title) {
-      alert("请先设置小说标题！");
+    if (!novel.id) {
+      alert("小说ID无效");
       return;
     }
     
@@ -183,129 +176,61 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
     clearLogs();
     
     try {
-      addLog('step', `📝 生成第 ${volumeIndex + 1} 卷《${novel.volumes[volumeIndex].title}》的章节列表...`);
+      const volume = novel.volumes[volumeIndex];
+      addLog('step', `🚀 正在调用后端生成第 ${volumeIndex + 1} 卷《${volume.title}》的章节列表...`);
+      addLog('info', '💡 所有业务逻辑在后端完成，数据将直接保存到数据库');
       if (chapterCount) {
         addLog('info', `📊 指定章节数量: ${chapterCount} 章`);
       }
       
-      // 显示提示词
-      const volume = novel.volumes[volumeIndex];
-      const chapterPrompt = `基于以下小说信息，为第 ${volumeIndex + 1} 卷《${volume.title}》生成章节列表：
-标题：${novel.title}
-类型：${novel.genre}
-完整大纲：${novel.fullOutline.substring(0, 1500)}
-
-本卷信息：
-${volume.summary ? `卷描述：${volume.summary}` : ''}
-${volume.outline ? `卷详细大纲：${volume.outline.substring(0, 1000)}` : ''}
-
-角色：${novel.characters.map(c => `${c.name}（${c.role}）`).join('、') || '暂无'}
-
-${chapterCount ? `请为本卷生成 ${chapterCount} 个章节。` : `请仔细分析本卷的详细大纲，根据大纲中描述的情节结构、事件数量和复杂度，确定合适的章节数量并生成章节列表（建议6-20章）。`}
-仅返回 JSON 数组，每个对象包含以下键："title"（标题）、"summary"（摘要）、"aiPromptHints"（AI提示）。`;
+      // 调用后端任务API
+      const { apiRequest } = await import('../services/apiService');
+      const params = chapterCount ? `?chapter_count=${chapterCount}` : '';
+      const taskResult = await apiRequest<{task_id: string; status: string; message: string}>(
+        `/api/novels/${novel.id}/volumes/${volumeIndex}/generate-chapters${params}`,
+        { method: 'POST' }
+      );
       
-      addLog('info', '📋 提示词 (生成章节列表):');
-      addLog('info', '─'.repeat(60));
-      chapterPrompt.split('\n').forEach(line => {
-        addLog('info', `   ${line.trim()}`);
-      });
-      addLog('info', '─'.repeat(60));
-      
-      const chapterData = await generateChapterOutline(novel, volumeIndex, chapterCount);
-      
-      if (!chapterData || !Array.isArray(chapterData) || chapterData.length === 0) {
-        throw new Error('API 返回的章节列表为空或格式不正确');
+      if (!taskResult.task_id) {
+        throw new Error('任务创建失败：未返回任务ID');
       }
       
-      // 验证每个章节对象的结构
-      const newChapters: Chapter[] = chapterData.map((c: any, i: number) => {
-        if (!c || typeof c !== 'object' || !c.title || !c.summary || !c.aiPromptHints) {
-          throw new Error(`章节 ${i + 1} 数据格式不正确或缺少必要字段`);
-        }
-        return {
-          id: `ch-${Date.now()}-${volumeIndex}-${i}`,
-          title: c.title,
-          summary: c.summary,
-          aiPromptHints: c.aiPromptHints,
-          content: ''
-        };
-      });
-
-      addLog('success', `✅ 成功生成 ${newChapters.length} 个章节`);
-      newChapters.forEach((ch, idx) => {
-        addLog('info', `   ${idx + 1}. ${ch.title}`);
-      });
+      addLog('success', `✅ 任务已创建 (ID: ${taskResult.task_id})`);
+      addLog('info', '⏳ 正在后台生成，请等待...');
       
-      if (!novel.volumes || volumeIndex >= novel.volumes.length) {
-        throw new Error('卷信息已变更，请刷新页面重试');
-      }
+      // 轮询任务状态
+      const taskServiceModule = await import('../services/taskService');
+      const { startPolling } = taskServiceModule;
       
-      const updatedVolumes = [...novel.volumes];
-      const existingChapters = updatedVolumes[volumeIndex].chapters || [];
-      
-      // 检查是否已有章节
-      if (existingChapters.length > 0) {
-        // 询问用户是替换还是追加
-        const hasContent = existingChapters.some(ch => ch.content && ch.content.trim());
-        let shouldReplace = false;
-        
-        if (hasContent) {
-          // 如果有章节已有内容，询问是否替换
-          shouldReplace = confirm(`本卷已有 ${existingChapters.length} 个章节${hasContent ? '（部分章节已有内容）' : ''}。\n\n点击"确定"替换为新的章节列表（会保留标题匹配的章节内容），\n点击"取消"追加新章节到现有列表。`);
-        } else {
-          // 如果没有内容，默认替换
-          shouldReplace = true;
-        }
-        
-        if (shouldReplace) {
-          // 替换模式：保留标题匹配的章节内容
-          const mergedChapters = newChapters.map(newChapter => {
-            // 尝试找到标题匹配的已有章节
-            const matchedChapter = existingChapters.find(
-              existing => existing.title === newChapter.title || 
-                         existing.title.includes(newChapter.title) || 
-                         newChapter.title.includes(existing.title)
-            );
+      await new Promise<void>((resolve, reject) => {
+        startPolling(taskResult.task_id, {
+          onProgress: (task) => {
+            const progress = task.progress || 0;
+            const message = task.progress_message || '处理中...';
+            addLog('info', `⏳ ${progress}% - ${message}`);
+          },
+          onComplete: async (task) => {
+            addLog('success', '✅ 章节列表生成完成！后端已自动保存');
+            addLog('info', '🔄 正在重新加载最新数据...');
             
-            if (matchedChapter && matchedChapter.content && matchedChapter.content.trim()) {
-              // 保留已有章节的内容和ID
-              addLog('info', `💾 保留章节《${newChapter.title}》的已有内容`);
-              return {
-                ...newChapter,
-                id: matchedChapter.id, // 保留原有ID
-                content: matchedChapter.content // 保留已有内容
-              };
+            // 重新加载小说数据（后端已经保存）
+            if (loadNovels) {
+              await loadNovels();
+              addLog('success', '✅ 数据加载完成！');
             }
-            return newChapter;
-          });
-          
-          updatedVolumes[volumeIndex] = {
-            ...updatedVolumes[volumeIndex],
-            chapters: mergedChapters
-          };
-          
-          addLog('info', `🔄 已替换章节列表，保留了 ${mergedChapters.filter(ch => ch.content).length} 个章节的已有内容`);
-        } else {
-          // 追加模式：直接追加新章节
-          updatedVolumes[volumeIndex] = {
-            ...updatedVolumes[volumeIndex],
-            chapters: [...existingChapters, ...newChapters]
-          };
-          
-          addLog('info', `➕ 已追加 ${newChapters.length} 个新章节到现有列表`);
-        }
-      } else {
-        // 没有已有章节，直接设置
-        updatedVolumes[volumeIndex] = {
-          ...updatedVolumes[volumeIndex],
-          chapters: newChapters
-        };
-      }
+            
+            resolve();
+          },
+          onError: (task) => {
+            addLog('error', `❌ 任务失败: ${task.error_message || '未知错误'}`);
+            reject(new Error(task.error_message || '任务执行失败'));
+          },
+        });
+      });
       
-      updateNovel({ volumes: updatedVolumes });
     } catch (err: any) {
       addLog('error', `❌ 生成失败: ${err?.message || '未知错误'}`);
-      alert(`生成章节失败：${err?.message || '未知错误'}\n\n请查看控制台获取详细信息。`);
+      alert(`生成章节失败：${err?.message || '未知错误'}`);
     } finally {
       setLoadingVolumeIdx(null);
     }

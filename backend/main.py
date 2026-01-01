@@ -2750,6 +2750,155 @@ async def generate_volume_outline_task(
         "message": f"卷大纲生成任务已创建，正在后台执行（第 {volume_index + 1} 卷：{volume.title}）"
     }
 
+@app.post("/api/novels/{novel_id}/volumes/{volume_index}/generate-chapters")
+async def generate_chapters_task(
+    novel_id: str,
+    volume_index: int,
+    chapter_count: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    生成章节列表并直接保存到数据库
+    前端只需要调用这一个接口，所有业务逻辑都在后端完成
+    """
+    # 验证小说存在
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.user_id == current_user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    
+    # 验证卷存在
+    volumes = db.query(Volume).filter(
+        Volume.novel_id == novel_id
+    ).order_by(Volume.volume_order).all()
+    
+    if volume_index < 0 or volume_index >= len(volumes):
+        raise HTTPException(status_code=404, detail="卷索引无效")
+    
+    volume = volumes[volume_index]
+    
+    # 创建任务
+    task = create_task(
+        db=db,
+        novel_id=novel_id,
+        user_id=current_user.id,
+        task_type="generate_chapters",
+        task_data={
+            "volume_index": volume_index,
+            "volume_id": volume.id,
+            "volume_title": volume.title,
+            "chapter_count": chapter_count
+        }
+    )
+    
+    # 在后台执行章节列表生成
+    def execute_chapters_generation():
+        task_db = SessionLocal()
+        try:
+            logger.info(f"开始生成章节列表，任务ID: {task.id}，小说ID: {novel_id}，卷索引: {volume_index}")
+            
+            # 获取小说和卷信息
+            novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
+            if not novel_obj:
+                raise Exception("小说不存在")
+            
+            volume_obj = task_db.query(Volume).filter(Volume.id == volume.id).first()
+            if not volume_obj:
+                raise Exception("卷不存在")
+            
+            # 获取角色信息
+            characters = task_db.query(Character).filter(
+                Character.novel_id == novel_id
+            ).all()
+            characters_data = [{
+                "name": c.name,
+                "role": c.role
+            } for c in characters]
+            
+            # 创建进度回调
+            progress = ProgressCallback(task.id)
+            progress.update(10, f"开始生成第 {volume_index + 1} 卷《{volume_obj.title}》的章节列表...")
+            
+            # 生成章节列表
+            chapters_data = generate_chapter_outline_impl(
+                novel_title=novel_obj.title,
+                genre=novel_obj.genre,
+                full_outline=novel_obj.full_outline or "",
+                volume_title=volume_obj.title,
+                volume_summary=volume_obj.summary or "",
+                volume_outline=volume_obj.outline or "",
+                characters=characters_data,
+                volume_index=volume_index,
+                chapter_count=chapter_count
+            )
+            
+            progress.update(80, f"已生成 {len(chapters_data)} 个章节，正在保存到数据库...")
+            
+            # 删除该卷的旧章节
+            task_db.query(Chapter).filter(Chapter.volume_id == volume_obj.id).delete()
+            task_db.commit()
+            
+            # 保存新章节到数据库
+            current_time = int(time.time() * 1000)
+            for idx, chapter_data in enumerate(chapters_data):
+                chapter = Chapter(
+                    id=generate_uuid(),
+                    volume_id=volume_obj.id,
+                    title=chapter_data.get("title", f"第{idx+1}章"),
+                    summary=chapter_data.get("summary", ""),
+                    content="",
+                    ai_prompt_hints=chapter_data.get("aiPromptHints", ""),
+                    chapter_order=idx,
+                    created_at=current_time,
+                    updated_at=current_time
+                )
+                task_db.add(chapter)
+            task_db.commit()
+            
+            progress.update(100, f"章节列表生成完成，共 {len(chapters_data)} 个章节")
+            
+            # 更新任务状态
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "completed"
+                task_obj.progress = 100
+                task_obj.progress_message = f"章节列表生成完成，共 {len(chapters_data)} 个章节"
+                task_obj.result = json.dumps({
+                    "success": True,
+                    "message": "章节列表已生成并保存",
+                    "volume_index": volume_index,
+                    "volume_title": volume_obj.title,
+                    "chapter_count": len(chapters_data)
+                })
+                task_obj.completed_at = int(time.time() * 1000)
+                task_db.commit()
+                logger.info(f"章节列表生成任务完成，任务ID: {task.id}")
+        except Exception as e:
+            logger.error(f"生成章节列表失败: {str(e)}", exc_info=True)
+            task_db = SessionLocal()
+            try:
+                task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+                if task_obj:
+                    task_obj.status = "failed"
+                    task_obj.error_message = str(e)
+                    task_obj.completed_at = int(time.time() * 1000)
+                    task_db.commit()
+            finally:
+                task_db.close()
+            raise
+    
+    executor = get_task_executor()
+    executor.submit(execute_chapters_generation)
+    
+    return {
+        "task_id": task.id,
+        "status": "pending",
+        "message": f"章节列表生成任务已创建，正在后台执行（第 {volume_index + 1} 卷：{volume.title}）"
+    }
+
 def update_task_progress(db: Session, task_id: str, progress: int, message: str):
     """更新任务进度"""
     task = db.query(Task).filter(Task.id == task_id).first()
