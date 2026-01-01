@@ -228,7 +228,8 @@ def generate_chapter_outline(
     volume_outline: str,
     characters: list,
     volume_index: int,
-    chapter_count: Optional[int] = None
+    chapter_count: Optional[int] = None,
+    previous_volumes_info: Optional[list] = None
 ) -> list:
     """生成章节列表"""
     try:
@@ -261,6 +262,24 @@ def generate_chapter_outline(
         volume_desc = f"卷描述：{volume_summary[:200]}" if volume_summary else ""
         volume_outline_text = f"卷详细大纲：{volume_outline[:1500]}" if volume_outline else ""
         
+        # 构建前面卷的参考信息（用于确保连贯性）
+        previous_volumes_section = ""
+        if volume_index > 0 and previous_volumes_info:
+            previous_volumes_section = "\n【前面卷的参考信息】（用于确保情节连贯，不要重复这些内容）\n"
+            for prev_vol_info in previous_volumes_info:
+                prev_vol_title = prev_vol_info.get("title", "")
+                prev_vol_summary = prev_vol_info.get("summary", "")
+                prev_chapters = prev_vol_info.get("chapters", [])
+                
+                previous_volumes_section += f"\n{prev_vol_title}：\n"
+                if prev_vol_summary:
+                    previous_volumes_section += f"  卷描述：{prev_vol_summary[:200]}\n"
+                if prev_chapters:
+                    chapter_titles = [ch.get("title", "") for ch in prev_chapters[:10]]  # 只取前10个章节
+                    previous_volumes_section += f"  章节列表：{'、'.join(chapter_titles)}\n"
+            
+            previous_volumes_section += "\n⚠️ 注意：参考前面卷的信息是为了确保情节连贯，但不要重复前面卷的内容！\n"
+        
         prompt = f"""基于以下信息，为第 {volume_index + 1} 卷《{volume_title}》生成章节列表：
 
 【⚠️ 严格限制】
@@ -270,8 +289,8 @@ def generate_chapter_outline(
 【小说基本信息】
 标题：{novel_title}
 类型：{genre}
-
-【本卷详细信息】（只基于这些信息生成章节，不要参考其他内容）
+{previous_volumes_section}
+【本卷详细信息】（这是你需要生成章节的依据）
 {volume_desc}
 {volume_outline_text}{word_count_info}
 
@@ -287,6 +306,9 @@ def generate_chapter_outline(
 - 每个章节都应该是本卷的独立故事单元
 - 章节的结尾应该是本卷的情节收束，不要为后续卷埋下伏笔
 - 如果本卷大纲中提到了后续卷的内容，请忽略它们，只关注本卷的描述
+{f"- 必须与前面卷的情节保持连贯，承接前面卷的故事发展" if volume_index > 0 else ""}
+{f"- 不要重复前面卷已经发生的情节和事件" if volume_index > 0 else ""}
+{f"- 本卷章节应该是在前面卷基础上的自然延续和发展" if volume_index > 0 else ""}
 
 仅返回 JSON 数组，每个对象包含以下键："title"（标题）、"summary"（摘要）、"aiPromptHints"（AI提示）。"""
         

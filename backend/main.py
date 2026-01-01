@@ -2825,6 +2825,28 @@ async def generate_chapters_task(
                 "role": c.role
             } for c in characters]
             
+            # 获取前面卷的信息（用于确保连贯性）
+            previous_volumes_info = []
+            if volume_index > 0:
+                previous_volumes = task_db.query(Volume).filter(
+                    Volume.novel_id == novel_id,
+                    Volume.volume_order < volume_index
+                ).order_by(Volume.volume_order).all()
+                
+                for prev_vol in previous_volumes:
+                    prev_chapters = task_db.query(Chapter).filter(
+                        Chapter.volume_id == prev_vol.id
+                    ).order_by(Chapter.chapter_order).all()
+                    
+                    previous_volumes_info.append({
+                        "title": prev_vol.title,
+                        "summary": prev_vol.summary or "",
+                        "chapters": [{
+                            "title": ch.title,
+                            "summary": ch.summary or ""
+                        } for ch in prev_chapters]
+                    })
+            
             # 创建进度回调
             progress = ProgressCallback(task.id)
             progress.update(10, f"开始生成第 {volume_index + 1} 卷《{volume_obj.title}》的章节列表...")
@@ -2839,7 +2861,8 @@ async def generate_chapters_task(
                 volume_outline=volume_obj.outline or "",
                 characters=characters_data,
                 volume_index=volume_index,
-                chapter_count=chapter_count
+                chapter_count=chapter_count,
+                previous_volumes_info=previous_volumes_info if previous_volumes_info else None
             )
             
             progress.update(80, f"已生成 {len(chapters_data)} 个章节，正在保存到数据库...")
