@@ -196,8 +196,17 @@ class EmbeddingService:
                     paragraph_embeddings.append(embedding)
             
             # 3. 准备向量数据（转换为字符串格式）
-            full_embedding_str = "[" + ",".join(map(str, full_embedding)) + "]"
-            paragraph_embeddings_str = "{" + ",".join(["[" + ",".join(map(str, emb)) + "]" for emb in paragraph_embeddings]) + "}"
+            def _vector_literal(vec: List[float]) -> str:
+                return "[" + ",".join(map(str, vec)) + "]"
+
+            full_embedding_str = _vector_literal(full_embedding)
+
+            # pgvector 的 vector[] 需要使用 PostgreSQL 数组字面量格式；元素内含逗号必须加引号
+            # 例：{"[1,2,3]","[4,5,6]"}::vector[]
+            if paragraph_embeddings:
+                paragraph_embeddings_str = "{" + ",".join([f"\"{_vector_literal(emb)}\"" for emb in paragraph_embeddings]) + "}"
+            else:
+                paragraph_embeddings_str = "{}"
             
             # 4. 存储到数据库（使用 ON CONFLICT 处理更新）
             import time as time_module

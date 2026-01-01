@@ -1,6 +1,6 @@
 // Gemini API 服务 - 通过后端 API 调用
 import { Novel, Character, WorldSetting, TimelineEvent } from "../types";
-import { apiRequest } from "./apiService";
+import { apiFetch, apiRequest } from "./apiService";
 
 // 流式传输回调函数类型
 export type StreamChunkCallback = (chunk: string, isComplete: boolean) => void;
@@ -115,15 +115,8 @@ export const generateVolumeOutline = async (
   const volume = novel.volumes[volumeIndex];
 
   try {
-    const token = localStorage.getItem("access_token");
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
-
-    const response = await fetch(`${API_BASE_URL}/api/ai/generate-volume-outline`, {
+    const response = await apiFetch(`/api/ai/generate-volume-outline`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       body: JSON.stringify({
         novel_title: novel.title,
         full_outline: novel.fullOutline,
@@ -253,20 +246,14 @@ export const writeChapterContent = async (
 ) => {
   try {
     const chapter = novel.volumes[volumeIndex].chapters[chapterIndex];
-    const token = localStorage.getItem("access_token");
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
     // 注意：后端现在会自动使用向量相似度智能选择相关章节作为上下文
     // 如果提供了 novel_id，后端会忽略 previous_chapters_context 参数
     // 保留此调用作为备用（当后端无法获取 novel_id 时）
     const previousChaptersContext = getPreviousChaptersContext(novel, chapterIndex, volumeIndex, 3);
 
-    const response = await fetch(`${API_BASE_URL}/api/ai/write-chapter`, {
+    const response = await apiFetch(`/api/ai/write-chapter`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       body: JSON.stringify({
         novel_title: novel.title,
         novel_id: novel.id,  // 传递 novel_id，后端会使用向量相似度智能选择相关章节

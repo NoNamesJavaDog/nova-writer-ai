@@ -24,6 +24,7 @@ export interface PollingCallbacks {
 }
 
 let pollingIntervals: Map<string, NodeJS.Timeout> = new Map();
+let pollingErrorCounts: Map<string, number> = new Map();
 
 /**
  * 开始轮询任务状态
@@ -40,14 +41,17 @@ export function startPolling(
   if (pollingIntervals.has(taskId)) {
     clearInterval(pollingIntervals.get(taskId)!);
   }
+  pollingErrorCounts.set(taskId, 0);
 
   const poll = async () => {
     try {
       const task = await apiRequest<Task>(`/api/tasks/${taskId}`);
+      pollingErrorCounts.set(taskId, 0);
 
       if (task.status === 'completed') {
         clearInterval(pollingIntervals.get(taskId)!);
         pollingIntervals.delete(taskId);
+        pollingErrorCounts.delete(taskId);
         callbacks.onComplete(task);
         return;
       }
@@ -55,6 +59,7 @@ export function startPolling(
       if (task.status === 'failed') {
         clearInterval(pollingIntervals.get(taskId)!);
         pollingIntervals.delete(taskId);
+        pollingErrorCounts.delete(taskId);
         callbacks.onError(task);
         return;
       }
@@ -64,16 +69,43 @@ export function startPolling(
         callbacks.onProgress(task);
       }
     } catch (error: any) {
-      // 如果请求失败，停止轮询并调用错误回调
+      const message = error?.message || '获取任务状态失败';
+
+      // 登录过期时直接停止轮询
+      if (message.includes('登录已过期')) {
+        clearInterval(pollingIntervals.get(taskId)!);
+        pollingIntervals.delete(taskId);
+        pollingErrorCounts.delete(taskId);
+        callbacks.onError({
+          id: taskId,
+          novel_id: '',
+          task_type: '',
+          status: 'failed',
+          progress: 0,
+          error_message: message,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        } as Task);
+        return;
+      }
+
+      // 网络抖动等临时错误：允许少量重试，不要立刻停止轮询
+      const currentCount = (pollingErrorCounts.get(taskId) || 0) + 1;
+      pollingErrorCounts.set(taskId, currentCount);
+      if (currentCount < 5) {
+        return;
+      }
+
       clearInterval(pollingIntervals.get(taskId)!);
       pollingIntervals.delete(taskId);
+      pollingErrorCounts.delete(taskId);
       callbacks.onError({
         id: taskId,
         novel_id: '',
         task_type: '',
         status: 'failed',
         progress: 0,
-        error_message: error.message || '获取任务状态失败',
+        error_message: message,
         created_at: Date.now(),
         updated_at: Date.now(),
       } as Task);
@@ -96,6 +128,7 @@ export function stopPolling(taskId: string): void {
   if (pollingIntervals.has(taskId)) {
     clearInterval(pollingIntervals.get(taskId)!);
     pollingIntervals.delete(taskId);
+    pollingErrorCounts.delete(taskId);
   }
 }
 

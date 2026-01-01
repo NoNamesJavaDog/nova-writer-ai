@@ -96,6 +96,69 @@ const refreshAccessToken = async (): Promise<LoginResponse | null> => {
   return refreshPromise;
 };
 
+// 通用 fetch（支持 401 自动刷新），用于流式接口等需要拿到 Response 的场景
+export async function apiFetch(
+  endpoint: string,
+  options: RequestInit = {},
+  retryOn401: boolean = true
+): Promise<Response> {
+  const token = getToken();
+
+  const headers: HeadersInit = {
+    ...(options.headers || {}),
+  };
+
+  // 仅在未显式设置时补充 Content-Type，避免覆盖 FormData 等
+  if (!('Content-Type' in (headers as any))) {
+    (headers as any)['Content-Type'] = 'application/json';
+  }
+
+  if (token) {
+    (headers as any)['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status !== 401 || !retryOn401) {
+    return response;
+  }
+
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) {
+    clearAllTokens();
+    if (onTokenExpiredCallback) {
+      onTokenExpiredCallback();
+    }
+    throw new Error('登录已过期，请重新登录');
+  }
+
+  const retryHeaders: HeadersInit = {
+    ...(options.headers || {}),
+    'Authorization': `Bearer ${refreshed.access_token}`,
+  };
+  if (!('Content-Type' in (retryHeaders as any))) {
+    (retryHeaders as any)['Content-Type'] = 'application/json';
+  }
+
+  const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers: retryHeaders,
+  });
+
+  if (retryResponse.status === 401) {
+    clearAllTokens();
+    if (onTokenExpiredCallback) {
+      onTokenExpiredCallback();
+    }
+    throw new Error('登录已过期，请重新登录');
+  }
+
+  return retryResponse;
+}
+
 // 通用 API 请求函数
 export async function apiRequest<T>(
   endpoint: string,
