@@ -3079,10 +3079,20 @@ async def generate_all_chapters_task(
 
                     current_time = int(time.time() * 1000)
                     for ch_idx, chapter_data in enumerate(chapters_data):
+                        # 标题规范化：避免模型把“第X章”写进 title，导致跨卷章号显示错乱
+                        raw_title = (chapter_data.get("title") or "").strip()
+                        normalized_title = raw_title
+                        if raw_title:
+                            import re
+                            normalized_title = re.sub(r'^\s*第\s*[0-9一二三四五六七八九十百千]+\s*章\s*[:：\-—\.\s]*', '', raw_title).strip()
+                            normalized_title = re.sub(r'^\s*\d+\s*[\.\-：:\s]+', '', normalized_title).strip()
+                        if not normalized_title:
+                            normalized_title = f"第{ch_idx+1}章"
+
                         chapter = Chapter(
                             id=generate_uuid(),
                             volume_id=volume_obj.id,
-                            title=chapter_data.get("title", f"第{ch_idx+1}章"),
+                            title=normalized_title,
                             summary=chapter_data.get("summary", ""),
                             content="",
                             ai_prompt_hints=chapter_data.get("aiPromptHints", ""),
@@ -3320,10 +3330,19 @@ async def generate_chapters_task(
             # 保存新章节到数据库
             current_time = int(time.time() * 1000)
             for idx, chapter_data in enumerate(chapters_data):
+                raw_title = (chapter_data.get("title") or "").strip()
+                normalized_title = raw_title
+                if raw_title:
+                    import re
+                    normalized_title = re.sub(r'^\s*第\s*[0-9一二三四五六七八九十百千]+\s*章\s*[:：\-—\.\s]*', '', raw_title).strip()
+                    normalized_title = re.sub(r'^\s*\d+\s*[\.\-：:\s]+', '', normalized_title).strip()
+                if not normalized_title:
+                    normalized_title = f"第{idx+1}章"
+
                 chapter = Chapter(
                     id=generate_uuid(),
                     volume_id=volume_obj.id,
-                    title=chapter_data.get("title", f"第{idx+1}章"),
+                    title=normalized_title,
                     summary=chapter_data.get("summary", ""),
                     content="",
                     ai_prompt_hints=chapter_data.get("aiPromptHints", ""),
