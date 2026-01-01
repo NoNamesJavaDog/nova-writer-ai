@@ -284,74 +284,73 @@ async def get_novels(
         ).filter(Novel.user_id == current_user.id).order_by(Novel.updated_at.desc()).all()
         result = []
         for novel in novels:
-            # 优化：简化数据结构，移除chapters以减少内存占用
-            # 前端可以按需调用单个小说接口获取详细信息
+            # 直接手动转换为camelCase，避免schema验证问题
             novel_dict = {
                 "id": novel.id,
-                "user_id": novel.user_id,
+                "userId": novel.user_id,
                 "title": novel.title,
                 "genre": novel.genre,
                 "synopsis": novel.synopsis or "",
-                "full_outline": novel.full_outline or "",
-                "created_at": novel.created_at,
-                "updated_at": novel.updated_at,
+                "fullOutline": novel.full_outline or "",
+                "createdAt": novel.created_at,
+                "updatedAt": novel.updated_at,
                 "volumes": sorted([{
                     "id": v.id,
-                    "novel_id": v.novel_id,
+                    "novelId": v.novel_id,
                     "title": v.title,
                     "summary": v.summary or "",
                     "outline": v.outline or "",
-                    "volume_order": v.volume_order,
-                    "created_at": v.created_at,
-                    "updated_at": v.updated_at,
+                    "volumeOrder": v.volume_order,
+                    "createdAt": v.created_at,
+                    "updatedAt": v.updated_at,
                     "chapters": []  # 不返回章节列表，减少数据量
-                } for v in novel.volumes], key=lambda x: x["volume_order"]),
+                } for v in novel.volumes], key=lambda x: x["volumeOrder"]),
                 "characters": [{
                     "id": c.id,
-                    "novel_id": c.novel_id,
+                    "novelId": c.novel_id,
                     "name": c.name,
                     "age": c.age or "",
                     "role": c.role or "",
                     "personality": c.personality or "",
                     "background": c.background or "",
                     "goals": c.goals or "",
-                    "character_order": c.character_order,
-                    "created_at": c.created_at,
-                    "updated_at": c.updated_at
+                    "characterOrder": c.character_order,
+                    "createdAt": c.created_at,
+                    "updatedAt": c.updated_at
                 } for c in novel.characters],
-                "world_settings": [{
+                "worldSettings": [{
                     "id": w.id,
-                    "novel_id": w.novel_id,
+                    "novelId": w.novel_id,
                     "title": w.title,
                     "description": w.description,
                     "category": w.category,
-                    "setting_order": w.setting_order,
-                    "created_at": w.created_at,
-                    "updated_at": w.updated_at
+                    "settingOrder": w.setting_order,
+                    "createdAt": w.created_at,
+                    "updatedAt": w.updated_at
                 } for w in novel.world_settings],
-                "timeline_events": [{
+                "timeline": [{  # 改为timeline而不是timeline_events
                     "id": t.id,
-                    "novel_id": t.novel_id,
+                    "novelId": t.novel_id,  # 前端期待camelCase
                     "time": t.time,
                     "event": t.event,
                     "impact": t.impact or "",
-                    "event_order": t.event_order,
-                    "created_at": t.created_at,
-                    "updated_at": t.updated_at
+                    "eventOrder": t.event_order,
+                    "createdAt": t.created_at,
+                    "updatedAt": t.updated_at
                 } for t in novel.timeline_events],
                 "foreshadowings": [{
                     "id": f.id,
-                    "novel_id": f.novel_id,
+                    "novelId": f.novel_id,
                     "content": f.content,
-                    "chapter_id": f.chapter_id,
-                    "resolved_chapter_id": f.resolved_chapter_id,
-                    "is_resolved": f.is_resolved,
-                    "foreshadowing_order": f.foreshadowing_order,
-                    "created_at": f.created_at,
-                    "updated_at": f.updated_at
+                    "chapterId": f.chapter_id,
+                    "resolvedChapterId": f.resolved_chapter_id,
+                    "isResolved": f.is_resolved,
+                    "foreshadowingOrder": f.foreshadowing_order,
+                    "createdAt": f.created_at,
+                    "updatedAt": f.updated_at
                 } for f in novel.foreshadowings]
             }
-            result.append(convert_to_camel_case(novel_dict))
+            result.append(novel_dict)  # 不使用convert_to_camel_case，已经手动转换
         return result
     except Exception as e:
         logger.error(f"获取小说列表失败: {str(e)}", exc_info=True)
