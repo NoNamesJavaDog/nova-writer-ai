@@ -2713,11 +2713,56 @@ async def modify_outline_by_dialogue_endpoint(
                 novel_obj = task_db.query(Novel).filter(Novel.id == request.novel_id).first()
                 if novel_obj:
                     current_time = int(time.time() * 1000)
+                    update_count = 0
                     
                     # 更新大纲
                     if result.get("outline"):
                         novel_obj.full_outline = result["outline"]
                         novel_obj.updated_at = current_time
+                        update_count += 1
+                        progress.update(82, "✓ 大纲已更新")
+                    
+                    # 更新卷结构（如果有修改）
+                    if result.get("volumes"):
+                        # 不删除旧卷，而是更新已有的卷或添加新卷
+                        existing_volumes = task_db.query(Volume).filter(
+                            Volume.novel_id == request.novel_id
+                        ).order_by(Volume.volume_order).all()
+                        
+                        # 处理返回的卷数据
+                        for idx, vol_data in enumerate(result["volumes"]):
+                            if idx < len(existing_volumes):
+                                # 更新现有卷
+                                vol = existing_volumes[idx]
+                                if vol_data.get("title"):
+                                    vol.title = vol_data["title"]
+                                if vol_data.get("summary"):
+                                    vol.summary = vol_data["summary"]
+                                if vol_data.get("outline"):
+                                    vol.outline = vol_data["outline"]
+                                vol.volume_order = idx
+                                vol.updated_at = current_time
+                            else:
+                                # 添加新卷
+                                new_volume = Volume(
+                                    id=generate_uuid(),
+                                    novel_id=request.novel_id,
+                                    title=vol_data.get("title", f"第{idx+1}卷"),
+                                    summary=vol_data.get("summary", ""),
+                                    outline=vol_data.get("outline", ""),
+                                    volume_order=idx,
+                                    created_at=current_time,
+                                    updated_at=current_time
+                                )
+                                task_db.add(new_volume)
+                        
+                        # 如果返回的卷数少于现有卷数，删除多余的卷
+                        if len(result["volumes"]) < len(existing_volumes):
+                            for vol in existing_volumes[len(result["volumes"]):]:
+                                task_db.delete(vol)
+                        
+                        update_count += 1
+                        progress.update(84, f"✓ 已更新 {len(result['volumes'])} 个卷")
                     
                     # 更新角色（如果有修改）
                     if result.get("characters"):
@@ -2739,11 +2784,13 @@ async def modify_outline_by_dialogue_endpoint(
                                 updated_at=current_time
                             )
                             task_db.add(character)
+                        update_count += 1
+                        progress.update(87, f"✓ 已更新 {len(result['characters'])} 个角色")
                     
                     # 更新世界观（如果有修改）
-                    if result.get("worldSettings"):
+                    if result.get("world_settings"):
                         task_db.query(WorldSetting).filter(WorldSetting.novel_id == request.novel_id).delete()
-                        for idx, ws_data in enumerate(result["worldSettings"]):
+                        for idx, ws_data in enumerate(result["world_settings"]):
                             world_setting = WorldSetting(
                                 id=generate_uuid(),
                                 novel_id=request.novel_id,
@@ -2755,6 +2802,8 @@ async def modify_outline_by_dialogue_endpoint(
                                 updated_at=current_time
                             )
                             task_db.add(world_setting)
+                        update_count += 1
+                        progress.update(90, f"✓ 已更新 {len(result['world_settings'])} 个世界观设定")
                     
                     # 更新时间线（如果有修改）
                     if result.get("timeline"):
@@ -2771,9 +2820,11 @@ async def modify_outline_by_dialogue_endpoint(
                                 updated_at=current_time
                             )
                             task_db.add(timeline_event)
+                        update_count += 1
+                        progress.update(93, f"✓ 已更新 {len(result['timeline'])} 个时间线事件")
                     
                     task_db.commit()
-                    progress.update(95, "数据保存成功")
+                    progress.update(95, f"✅ 数据保存成功，共更新了 {update_count} 项内容")
                 
                 task_obj = task_db.query(Task).filter(Task.id == task.id).first()
                 if task_obj:
