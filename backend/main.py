@@ -2691,6 +2691,8 @@ async def modify_outline_by_dialogue_endpoint(
                 task_db.close()
             
             progress = ProgressCallback(task.id)
+            progress.update(10, "正在分析修改请求...")
+            
             result = modify_outline_by_dialogue(
                 title=novel_title,
                 genre=novel_genre,
@@ -2703,13 +2705,82 @@ async def modify_outline_by_dialogue_endpoint(
                 progress_callback=progress
             )
             
+            progress.update(80, "正在保存修改后的数据...")
+            
+            # 保存修改后的数据到数据库
             task_db = SessionLocal()
             try:
+                novel_obj = task_db.query(Novel).filter(Novel.id == request.novel_id).first()
+                if novel_obj:
+                    current_time = int(time.time() * 1000)
+                    
+                    # 更新大纲
+                    if result.get("outline"):
+                        novel_obj.full_outline = result["outline"]
+                        novel_obj.updated_at = current_time
+                    
+                    # 更新角色（如果有修改）
+                    if result.get("characters"):
+                        # 删除旧角色
+                        task_db.query(Character).filter(Character.novel_id == request.novel_id).delete()
+                        # 添加新角色
+                        for idx, char_data in enumerate(result["characters"]):
+                            character = Character(
+                                id=generate_uuid(),
+                                novel_id=request.novel_id,
+                                name=char_data.get("name", ""),
+                                age=char_data.get("age", ""),
+                                role=char_data.get("role", ""),
+                                personality=char_data.get("personality", ""),
+                                background=char_data.get("background", ""),
+                                goals=char_data.get("goals", ""),
+                                character_order=idx,
+                                created_at=current_time,
+                                updated_at=current_time
+                            )
+                            task_db.add(character)
+                    
+                    # 更新世界观（如果有修改）
+                    if result.get("worldSettings"):
+                        task_db.query(WorldSetting).filter(WorldSetting.novel_id == request.novel_id).delete()
+                        for idx, ws_data in enumerate(result["worldSettings"]):
+                            world_setting = WorldSetting(
+                                id=generate_uuid(),
+                                novel_id=request.novel_id,
+                                title=ws_data.get("title", ""),
+                                description=ws_data.get("description", ""),
+                                category=ws_data.get("category", "其他"),
+                                setting_order=idx,
+                                created_at=current_time,
+                                updated_at=current_time
+                            )
+                            task_db.add(world_setting)
+                    
+                    # 更新时间线（如果有修改）
+                    if result.get("timeline"):
+                        task_db.query(TimelineEvent).filter(TimelineEvent.novel_id == request.novel_id).delete()
+                        for idx, t_data in enumerate(result["timeline"]):
+                            timeline_event = TimelineEvent(
+                                id=generate_uuid(),
+                                novel_id=request.novel_id,
+                                time=t_data.get("time", ""),
+                                event=t_data.get("event", ""),
+                                impact=t_data.get("impact", ""),
+                                event_order=idx,
+                                created_at=current_time,
+                                updated_at=current_time
+                            )
+                            task_db.add(timeline_event)
+                    
+                    task_db.commit()
+                    progress.update(95, "数据保存成功")
+                
                 task_obj = task_db.query(Task).filter(Task.id == task.id).first()
                 if task_obj:
                     task_obj.status = "completed"
                     task_obj.progress = 100
-                    task_obj.result = json.dumps(result)
+                    task_obj.progress_message = "大纲修改完成"
+                    task_obj.result = json.dumps({"success": True, "message": "大纲已更新"})
                     task_obj.completed_at = int(time.time() * 1000)
                     task_db.commit()
             finally:
