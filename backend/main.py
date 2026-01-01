@@ -2796,6 +2796,13 @@ async def generate_all_volume_outlines_task(
     def execute_all_volume_outlines_generation():
         task_db = SessionLocal()
         try:
+            # 更新任务状态：running
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "running"
+                task_obj.started_at = int(time.time() * 1000)
+                task_db.commit()
+
             novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
             if not novel_obj:
                 raise Exception("小说不存在")
@@ -2815,6 +2822,8 @@ async def generate_all_volume_outlines_task(
             total = len(volumes_obj)
             generated_count = 0
             skipped_count = 0
+            failed_count = 0
+            errors: List[Dict[str, Any]] = []
             progress.update(5, f"准备生成全部卷大纲（共 {total} 卷）...")
 
             for idx, volume_obj in enumerate(volumes_obj):
@@ -2826,34 +2835,52 @@ async def generate_all_volume_outlines_task(
                     progress.update(current_progress, f"跳过第 {volume_obj.volume_order + 1} 卷《{vol_title}》（已存在卷大纲）")
                     continue
 
-                progress.update(current_progress, f"生成第 {volume_obj.volume_order + 1} 卷《{vol_title}》卷大纲... ({idx + 1}/{total})")
-                volume_outline = generate_volume_outline_impl(
-                    novel_title=novel_obj.title,
-                    full_outline=novel_obj.full_outline or "",
-                    volume_title=vol_title,
-                    volume_summary=volume_obj.summary or "",
-                    characters=characters_data,
-                    volume_index=volume_obj.volume_order,
-                    progress_callback=None
-                )
+                try:
+                    progress.update(current_progress, f"生成第 {volume_obj.volume_order + 1} 卷《{vol_title}》卷大纲... ({idx + 1}/{total})")
+                    volume_outline = generate_volume_outline_impl(
+                        novel_title=novel_obj.title,
+                        full_outline=novel_obj.full_outline or "",
+                        volume_title=vol_title,
+                        volume_summary=volume_obj.summary or "",
+                        characters=characters_data,
+                        volume_index=volume_obj.volume_order,
+                        progress_callback=None
+                    )
 
-                volume_obj.outline = volume_outline
-                volume_obj.updated_at = int(time.time() * 1000)
-                task_db.commit()
-                generated_count += 1
+                    volume_obj.outline = volume_outline
+                    volume_obj.updated_at = int(time.time() * 1000)
+                    task_db.commit()
+                    generated_count += 1
+                except Exception as e:
+                    task_db.rollback()
+                    failed_count += 1
+                    errors.append({
+                        "volume_index": volume_obj.volume_order,
+                        "volume_title": vol_title,
+                        "error": str(e)
+                    })
+                    progress.update(current_progress, f"⚠️ 第 {volume_obj.volume_order + 1} 卷《{vol_title}》生成失败，已跳过继续：{str(e)[:120]}")
+                    continue
 
-            progress.update(95, f"卷大纲生成完成，正在更新任务状态...（生成 {generated_count}，跳过 {skipped_count}）")
+            progress.update(95, f"卷大纲生成完成，正在更新任务状态...（生成 {generated_count}，跳过 {skipped_count}，失败 {failed_count}）")
 
             task_obj = task_db.query(Task).filter(Task.id == task.id).first()
             if task_obj:
-                task_obj.status = "completed"
-                task_obj.progress = 100
-                task_obj.progress_message = f"全部卷大纲生成完成（生成 {generated_count}，跳过 {skipped_count}）"
+                has_any = (generated_count + skipped_count) > 0
+                task_obj.status = "completed" if has_any else "failed"
+                task_obj.progress = 100 if has_any else task_obj.progress
+                task_obj.progress_message = (
+                    f"全部卷大纲生成完成（生成 {generated_count}，跳过 {skipped_count}，失败 {failed_count}）"
+                    if has_any
+                    else "全部卷大纲生成失败"
+                )
                 task_obj.result = json.dumps({
-                    "success": True,
-                    "message": "全部卷大纲已生成并保存",
+                    "success": has_any,
+                    "message": "全部卷大纲已生成并保存" if has_any else "全部卷大纲生成失败",
                     "generated_count": generated_count,
                     "skipped_count": skipped_count,
+                    "failed_count": failed_count,
+                    "errors": errors,
                     "volume_count": total,
                     "force": force
                 })
@@ -2861,6 +2888,7 @@ async def generate_all_volume_outlines_task(
                 task_db.commit()
         except Exception as e:
             logger.error(f"一键生成全部卷大纲失败: {str(e)}", exc_info=True)
+            task_db.rollback()
             try:
                 task_obj = task_db.query(Task).filter(Task.id == task.id).first()
                 if task_obj:
@@ -2927,6 +2955,13 @@ async def generate_all_chapters_task(
     def execute_all_chapters_generation():
         task_db = SessionLocal()
         try:
+            # 更新任务状态：running
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "running"
+                task_obj.started_at = int(time.time() * 1000)
+                task_db.commit()
+
             novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
             if not novel_obj:
                 raise Exception("小说不存在")
@@ -2946,6 +2981,8 @@ async def generate_all_chapters_task(
             total = len(volumes_obj)
             generated_volume_count = 0
             skipped_volume_count = 0
+            failed_volume_count = 0
+            errors: List[Dict[str, Any]] = []
             generated_chapter_count = 0
             skipped_chapter_count = 0
 
@@ -2956,102 +2993,112 @@ async def generate_all_chapters_task(
                 vol_index = volume_obj.volume_order
                 vol_title = volume_obj.title or f"第{vol_index + 1}卷"
 
-                existing_chapter_count = task_db.query(Chapter).filter(Chapter.volume_id == volume_obj.id).count()
-                if not force and existing_chapter_count > 0:
-                    skipped_volume_count += 1
-                    skipped_chapter_count += existing_chapter_count
-                    progress.update(base_progress, f"跳过第 {vol_index + 1} 卷《{vol_title}》（已存在 {existing_chapter_count} 章）")
-                    continue
+                try:
+                    existing_chapter_count = task_db.query(Chapter).filter(Chapter.volume_id == volume_obj.id).count()
+                    if not force and existing_chapter_count > 0:
+                        skipped_volume_count += 1
+                        skipped_chapter_count += existing_chapter_count
+                        progress.update(base_progress, f"跳过第 {vol_index + 1} 卷《{vol_title}》（已存在 {existing_chapter_count} 章）")
+                        continue
 
-                # 强制确保存在“卷详细大纲”，否则章节容易不连贯/串卷
-                if not (volume_obj.outline or "").strip():
-                    progress.update(base_progress, f"本卷缺少卷大纲，正在生成第 {vol_index + 1} 卷《{vol_title}》卷详细大纲...")
-                    volume_outline = generate_volume_outline_impl(
+                    # 强制确保存在“卷详细大纲”，否则章节容易不连贯/串卷
+                    if not (volume_obj.outline or "").strip():
+                        progress.update(base_progress, f"本卷缺少卷大纲，正在生成第 {vol_index + 1} 卷《{vol_title}》卷详细大纲...")
+                        volume_outline = generate_volume_outline_impl(
+                            novel_title=novel_obj.title,
+                            full_outline=novel_obj.full_outline or "",
+                            volume_title=vol_title,
+                            volume_summary=volume_obj.summary or "",
+                            characters=characters_data,
+                            volume_index=vol_index,
+                            progress_callback=None
+                        )
+                        volume_obj.outline = volume_outline
+                        volume_obj.updated_at = int(time.time() * 1000)
+                        task_db.commit()
+
+                    # 构建“前面卷参考信息”：使用已经落库的章节标题+摘要，确保连贯且不重复
+                    previous_volumes_info = []
+                    if vol_index > 0:
+                        prev_vols = task_db.query(Volume).filter(
+                            Volume.novel_id == novel_id,
+                            Volume.volume_order < vol_index
+                        ).order_by(Volume.volume_order).all()
+                        for prev_vol in prev_vols:
+                            prev_chapters = task_db.query(Chapter).filter(
+                                Chapter.volume_id == prev_vol.id
+                            ).order_by(Chapter.chapter_order).all()
+                            previous_volumes_info.append({
+                                "title": prev_vol.title,
+                                "summary": prev_vol.summary or "",
+                                "chapters": [{
+                                    "title": ch.title,
+                                    "summary": ch.summary or ""
+                                } for ch in prev_chapters]
+                            })
+
+                    # 构建“后续卷规划（避雷）”：避免把后续卷大事件提前写到本卷
+                    future_volumes_info = []
+                    next_vols = task_db.query(Volume).filter(
+                        Volume.novel_id == novel_id,
+                        Volume.volume_order > vol_index
+                    ).order_by(Volume.volume_order).limit(3).all()
+                    for next_vol in next_vols:
+                        future_volumes_info.append({
+                            "title": next_vol.title,
+                            "summary": next_vol.summary or "",
+                            "outline": (next_vol.outline or "")[:1200]
+                        })
+
+                    progress.update(base_progress, f"生成第 {vol_index + 1} 卷《{vol_title}》章节列表... ({idx + 1}/{total})")
+                    chapters_data = generate_chapter_outline_impl(
                         novel_title=novel_obj.title,
+                        genre=novel_obj.genre,
                         full_outline=novel_obj.full_outline or "",
                         volume_title=vol_title,
                         volume_summary=volume_obj.summary or "",
+                        volume_outline=volume_obj.outline or "",
                         characters=characters_data,
                         volume_index=vol_index,
-                        progress_callback=None
+                        chapter_count=chapter_count,
+                        previous_volumes_info=previous_volumes_info if previous_volumes_info else None,
+                        future_volumes_info=future_volumes_info if future_volumes_info else None
                     )
-                    volume_obj.outline = volume_outline
-                    volume_obj.updated_at = int(time.time() * 1000)
+
+                    progress.update(base_progress + 5, f"已生成 {len(chapters_data)} 章，正在保存到数据库...")
+
+                    # 删除旧章节并写入新章节（一次性提交，避免中途失败导致章节被清空）
+                    if existing_chapter_count > 0:
+                        task_db.query(Chapter).filter(Chapter.volume_id == volume_obj.id).delete()
+
+                    current_time = int(time.time() * 1000)
+                    for ch_idx, chapter_data in enumerate(chapters_data):
+                        chapter = Chapter(
+                            id=generate_uuid(),
+                            volume_id=volume_obj.id,
+                            title=chapter_data.get("title", f"第{ch_idx+1}章"),
+                            summary=chapter_data.get("summary", ""),
+                            content="",
+                            ai_prompt_hints=chapter_data.get("aiPromptHints", ""),
+                            chapter_order=ch_idx,
+                            created_at=current_time,
+                            updated_at=current_time
+                        )
+                        task_db.add(chapter)
                     task_db.commit()
 
-                # 构建“前面卷参考信息”：使用已经落库的章节标题+摘要，确保连贯且不重复
-                previous_volumes_info = []
-                if vol_index > 0:
-                    prev_vols = task_db.query(Volume).filter(
-                        Volume.novel_id == novel_id,
-                        Volume.volume_order < vol_index
-                    ).order_by(Volume.volume_order).all()
-                    for prev_vol in prev_vols:
-                        prev_chapters = task_db.query(Chapter).filter(
-                            Chapter.volume_id == prev_vol.id
-                        ).order_by(Chapter.chapter_order).all()
-                        previous_volumes_info.append({
-                            "title": prev_vol.title,
-                            "summary": prev_vol.summary or "",
-                            "chapters": [{
-                                "title": ch.title,
-                                "summary": ch.summary or ""
-                            } for ch in prev_chapters]
-                        })
-
-                # 构建“后续卷规划（避雷）”：避免把后续卷大事件提前写到本卷
-                future_volumes_info = []
-                next_vols = task_db.query(Volume).filter(
-                    Volume.novel_id == novel_id,
-                    Volume.volume_order > vol_index
-                ).order_by(Volume.volume_order).limit(3).all()
-                for next_vol in next_vols:
-                    future_volumes_info.append({
-                        "title": next_vol.title,
-                        "summary": next_vol.summary or "",
-                        "outline": (next_vol.outline or "")[:1200]
+                    generated_volume_count += 1
+                    generated_chapter_count += len(chapters_data)
+                except Exception as e:
+                    task_db.rollback()
+                    failed_volume_count += 1
+                    errors.append({
+                        "volume_index": vol_index,
+                        "volume_title": vol_title,
+                        "error": str(e)
                     })
-
-                progress.update(base_progress, f"生成第 {vol_index + 1} 卷《{vol_title}》章节列表... ({idx + 1}/{total})")
-                chapters_data = generate_chapter_outline_impl(
-                    novel_title=novel_obj.title,
-                    genre=novel_obj.genre,
-                    full_outline=novel_obj.full_outline or "",
-                    volume_title=vol_title,
-                    volume_summary=volume_obj.summary or "",
-                    volume_outline=volume_obj.outline or "",
-                    characters=characters_data,
-                    volume_index=vol_index,
-                    chapter_count=chapter_count,
-                    previous_volumes_info=previous_volumes_info if previous_volumes_info else None,
-                    future_volumes_info=future_volumes_info if future_volumes_info else None
-                )
-
-                progress.update(base_progress + 5, f"已生成 {len(chapters_data)} 章，正在保存到数据库...")
-
-                # 删除旧章节并写入新章节
-                if existing_chapter_count > 0:
-                    task_db.query(Chapter).filter(Chapter.volume_id == volume_obj.id).delete()
-                    task_db.commit()
-
-                current_time = int(time.time() * 1000)
-                for ch_idx, chapter_data in enumerate(chapters_data):
-                    chapter = Chapter(
-                        id=generate_uuid(),
-                        volume_id=volume_obj.id,
-                        title=chapter_data.get("title", f"第{ch_idx+1}章"),
-                        summary=chapter_data.get("summary", ""),
-                        content="",
-                        ai_prompt_hints=chapter_data.get("aiPromptHints", ""),
-                        chapter_order=ch_idx,
-                        created_at=current_time,
-                        updated_at=current_time
-                    )
-                    task_db.add(chapter)
-                task_db.commit()
-
-                generated_volume_count += 1
-                generated_chapter_count += len(chapters_data)
+                    progress.update(base_progress, f"⚠️ 第 {vol_index + 1} 卷《{vol_title}》生成失败，已跳过继续：{str(e)[:120]}")
+                    continue
 
             progress.update(
                 95,
@@ -3060,16 +3107,21 @@ async def generate_all_chapters_task(
 
             task_obj = task_db.query(Task).filter(Task.id == task.id).first()
             if task_obj:
-                task_obj.status = "completed"
-                task_obj.progress = 100
+                has_any = (generated_volume_count + skipped_volume_count) > 0
+                task_obj.status = "completed" if has_any else "failed"
+                task_obj.progress = 100 if has_any else task_obj.progress
                 task_obj.progress_message = (
-                    f"全部章节列表生成完成（生成卷 {generated_volume_count}，跳过卷 {skipped_volume_count}）"
+                    f"全部章节列表生成完成（生成卷 {generated_volume_count}，跳过卷 {skipped_volume_count}，失败卷 {failed_volume_count}）"
+                    if has_any
+                    else "全部章节列表生成失败"
                 )
                 task_obj.result = json.dumps({
-                    "success": True,
-                    "message": "全部章节列表已生成并保存",
+                    "success": has_any,
+                    "message": "全部章节列表已生成并保存" if has_any else "全部章节列表生成失败",
                     "generated_volume_count": generated_volume_count,
                     "skipped_volume_count": skipped_volume_count,
+                    "failed_volume_count": failed_volume_count,
+                    "errors": errors,
                     "generated_chapter_count": generated_chapter_count,
                     "skipped_chapter_count": skipped_chapter_count,
                     "volume_count": total,
@@ -3080,6 +3132,7 @@ async def generate_all_chapters_task(
                 task_db.commit()
         except Exception as e:
             logger.error(f"一键生成全部章节列表失败: {str(e)}", exc_info=True)
+            task_db.rollback()
             try:
                 task_obj = task_db.query(Task).filter(Task.id == task.id).first()
                 if task_obj:
@@ -3150,6 +3203,12 @@ async def generate_chapters_task(
         task_db = SessionLocal()
         try:
             logger.info(f"开始生成章节列表，任务ID: {task.id}，小说ID: {novel_id}，卷索引: {volume_index}")
+
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "running"
+                task_obj.started_at = int(time.time() * 1000)
+                task_db.commit()
             
             # 获取小说和卷信息
             novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
@@ -3311,7 +3370,6 @@ async def generate_chapters_task(
             
             # 删除该卷的旧章节
             task_db.query(Chapter).filter(Chapter.volume_id == volume_obj.id).delete()
-            task_db.commit()
             
             # 保存新章节到数据库
             current_time = int(time.time() * 1000)
@@ -3350,7 +3408,6 @@ async def generate_chapters_task(
                 logger.info(f"章节列表生成任务完成，任务ID: {task.id}")
         except Exception as e:
             logger.error(f"生成章节列表失败: {str(e)}", exc_info=True)
-            task_db = SessionLocal()
             try:
                 task_obj = task_db.query(Task).filter(Task.id == task.id).first()
                 if task_obj:
@@ -3359,7 +3416,7 @@ async def generate_chapters_task(
                     task_obj.completed_at = int(time.time() * 1000)
                     task_db.commit()
             finally:
-                task_db.close()
+                task_db.rollback()
             raise
     
     executor = get_task_executor()
