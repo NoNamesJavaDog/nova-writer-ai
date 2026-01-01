@@ -152,6 +152,73 @@ def generate_volume_outline_stream(
         raise Exception(f"生成卷大纲失败: {str(e)}")
 
 
+def generate_volume_outline(
+    novel_title: str,
+    full_outline: str,
+    volume_title: str,
+    volume_summary: str,
+    characters: list,
+    volume_index: int,
+    progress_callback=None
+) -> str:
+    """生成卷详细大纲（非流式，返回完整文本）"""
+    try:
+        if progress_callback:
+            progress_callback.update(10, "开始生成卷大纲...")
+        
+        characters_text = "、".join([f"{c.get('name', '')}（{c.get('role', '')}）" for c in characters[:5]]) if characters else "暂无"
+        
+        volume_prompt = f"""基于以下信息，为《{novel_title}》的第 {volume_index + 1} 卷《{volume_title}》生成详细大纲。
+
+完整小说大纲：{full_outline[:1500]}
+
+本卷信息：
+标题：{volume_title}
+{f'描述：{volume_summary}' if volume_summary else ''}
+
+角色：{characters_text}
+
+请生成本卷的详细大纲，包括：
+1. 本卷的主要情节线
+2. 关键事件和转折点
+3. 角色在本卷中的发展
+4. 本卷的起承转合结构
+
+重要：请根据总纲中本卷的内容量，规划本卷的字数和章节数。
+- 分析本卷在总纲中的情节复杂度、事件数量和内容量
+- 估算本卷的合理字数范围（通常每卷15-30万字）
+- 根据字数规划章节数（每章5000-8000字，即0.5-0.8万字）
+- 计算公式：章节数 = 卷总字数（万字）÷ 0.65（平均每章0.65万字）
+- 确保章节数量合理，既能充分展开情节，又不会过于冗长
+
+请在大纲末尾明确标注：
+【字数规划】：XX-XX万字（例如：18-22万字）
+【章节规划】：XX章（例如：12章，必须是具体数字，不要范围）"""
+        
+        if progress_callback:
+            progress_callback.update(50, "正在调用AI生成卷大纲...")
+        
+        response = client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=volume_prompt,
+            config={
+                "temperature": 0.8,
+                "max_output_tokens": 8192,
+            }
+        )
+        
+        if not response.text:
+            raise Exception("API 返回空响应")
+        
+        if progress_callback:
+            progress_callback.update(90, "卷大纲生成完成")
+        
+        return response.text
+                
+    except Exception as e:
+        raise Exception(f"生成卷大纲失败: {str(e)}")
+
+
 def generate_chapter_outline(
     novel_title: str,
     genre: str,

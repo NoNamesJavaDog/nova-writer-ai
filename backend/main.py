@@ -55,7 +55,7 @@ from schemas import (
 from pydantic import BaseModel
 from captcha import generate_captcha, verify_captcha, check_login_status
 from gemini_service import (
-    generate_full_outline, generate_volume_outline_stream,
+    generate_full_outline, generate_volume_outline_stream, generate_volume_outline,
     generate_chapter_outline as generate_chapter_outline_impl, write_chapter_content_stream,
     generate_characters, generate_world_settings, generate_timeline_events,
     generate_foreshadowings_from_outline, modify_outline_by_dialogue,
@@ -2620,6 +2620,134 @@ async def generate_complete_outline(
         "task_id": task.id,
         "status": "pending",
         "message": "完整大纲生成任务已创建，正在后台执行"
+    }
+
+@app.post("/api/novels/{novel_id}/volumes/{volume_index}/generate-outline")
+async def generate_volume_outline_task(
+    novel_id: str,
+    volume_index: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    生成卷详细大纲并直接保存到数据库
+    前端只需要调用这一个接口，所有业务逻辑都在后端完成
+    """
+    # 验证小说存在
+    novel = db.query(Novel).filter(
+        Novel.id == novel_id,
+        Novel.user_id == current_user.id
+    ).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    
+    # 验证卷存在
+    volumes = db.query(Volume).filter(
+        Volume.novel_id == novel_id
+    ).order_by(Volume.volume_order).all()
+    
+    if volume_index < 0 or volume_index >= len(volumes):
+        raise HTTPException(status_code=404, detail="卷索引无效")
+    
+    volume = volumes[volume_index]
+    
+    # 创建任务
+    task = create_task(
+        db=db,
+        novel_id=novel_id,
+        user_id=current_user.id,
+        task_type="generate_volume_outline",
+        task_data={
+            "volume_index": volume_index,
+            "volume_id": volume.id,
+            "volume_title": volume.title
+        }
+    )
+    
+    # 在后台执行卷大纲生成
+    def execute_volume_outline_generation():
+        task_db = SessionLocal()
+        try:
+            logger.info(f"开始生成卷大纲，任务ID: {task.id}，小说ID: {novel_id}，卷索引: {volume_index}")
+            
+            # 获取小说和卷信息
+            novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
+            if not novel_obj:
+                raise Exception("小说不存在")
+            
+            volume_obj = task_db.query(Volume).filter(Volume.id == volume.id).first()
+            if not volume_obj:
+                raise Exception("卷不存在")
+            
+            # 获取角色信息
+            characters = task_db.query(Character).filter(
+                Character.novel_id == novel_id
+            ).all()
+            characters_data = [{
+                "name": c.name,
+                "role": c.role
+            } for c in characters]
+            
+            # 创建进度回调
+            progress = ProgressCallback(task.id)
+            progress.update(10, f"开始生成第 {volume_index + 1} 卷《{volume_obj.title}》的详细大纲...")
+            
+            # 生成卷大纲
+            volume_outline = generate_volume_outline(
+                novel_title=novel_obj.title,
+                full_outline=novel_obj.full_outline or "",
+                volume_title=volume_obj.title,
+                volume_summary=volume_obj.summary or "",
+                characters=characters_data,
+                volume_index=volume_index,
+                progress_callback=progress
+            )
+            
+            progress.update(90, "正在保存卷大纲到数据库...")
+            
+            # 保存卷大纲到数据库
+            volume_obj.outline = volume_outline
+            volume_obj.updated_at = int(time.time() * 1000)
+            task_db.commit()
+            
+            progress.update(100, "卷大纲生成完成")
+            
+            # 更新任务状态
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "completed"
+                task_obj.progress = 100
+                task_obj.progress_message = "卷大纲生成完成"
+                task_obj.result = json.dumps({
+                    "success": True,
+                    "message": "卷大纲已生成并保存",
+                    "volume_index": volume_index,
+                    "volume_title": volume_obj.title
+                })
+                task_obj.completed_at = int(time.time() * 1000)
+                task_db.commit()
+                logger.info(f"卷大纲生成任务完成，任务ID: {task.id}")
+        except Exception as e:
+            logger.error(f"生成卷大纲失败: {str(e)}", exc_info=True)
+            task_db = SessionLocal()
+            try:
+                task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+                if task_obj:
+                    task_obj.status = "failed"
+                    task_obj.error_message = str(e)
+                    task_obj.completed_at = int(time.time() * 1000)
+                    task_db.commit()
+            finally:
+                task_db.close()
+            raise
+    
+    executor = get_task_executor()
+    executor.submit(execute_volume_outline_generation)
+    
+    return {
+        "task_id": task.id,
+        "status": "pending",
+        "message": f"卷大纲生成任务已创建，正在后台执行（第 {volume_index + 1} 卷：{volume.title}）"
     }
 
 def update_task_progress(db: Session, task_id: str, progress: int, message: str):

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Novel, Chapter, Volume } from '../types';
 import { Sparkles, Plus, Trash2, ListTree, BookOpen, FileText, MessageCircle } from 'lucide-react';
-import { generateChapterOutline, generateVolumeOutline, writeChapterContent } from '../services/geminiService';
+import { generateChapterOutline, writeChapterContent } from '../services/geminiService';
 import Console, { LogEntry } from './Console';
 import OutlineChat from './OutlineChat';
 
@@ -85,61 +85,54 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
     clearLogs();
     
     try {
-      addLog('step', `📝 生成第 ${volumeIndex + 1} 卷《${novel.volumes[volumeIndex].title}》的详细大纲...`);
-      
-      // 显示提示词
       const volume = novel.volumes[volumeIndex];
-      const volumePrompt = `基于以下信息，为《${novel.title}》的第 ${volumeIndex + 1} 卷《${volume.title}》生成详细大纲。
-
-完整小说大纲：${novel.fullOutline.substring(0, 1500)}
-
-本卷信息：
-标题：${volume.title}
-${volume.summary ? `描述：${volume.summary}` : ''}
-
-角色：${novel.characters.map(c => `${c.name}（${c.role}）`).join('、') || '暂无'}
-
-请生成本卷的详细大纲，包括：
-1. 本卷的主要情节线
-2. 关键事件和转折点
-3. 角色在本卷中的发展
-4. 本卷的起承转合结构`;
+      addLog('step', `🚀 正在调用后端生成第 ${volumeIndex + 1} 卷《${volume.title}》的详细大纲...`);
+      addLog('info', '💡 所有业务逻辑在后端完成，数据将直接保存到数据库');
       
-      addLog('info', '📋 提示词 (生成卷详细大纲):');
-      addLog('info', '─'.repeat(60));
-      volumePrompt.split('\n').forEach(line => {
-        addLog('info', `   ${line.trim()}`);
+      // 调用后端任务API
+      const { apiRequest } = await import('../services/apiService');
+      const taskResult = await apiRequest<{task_id: string; status: string; message: string}>(
+        `/api/novels/${novel.id}/volumes/${volumeIndex}/generate-outline`,
+        { method: 'POST' }
+      );
+      
+      if (!taskResult.task_id) {
+        throw new Error('任务创建失败：未返回任务ID');
+      }
+      
+      addLog('success', `✅ 任务已创建 (ID: ${taskResult.task_id})`);
+      addLog('info', '⏳ 正在后台生成，请等待...');
+      
+      // 轮询任务状态
+      const taskServiceModule = await import('../services/taskService');
+      const { startPolling } = taskServiceModule;
+      
+      await new Promise<void>((resolve, reject) => {
+        startPolling(taskResult.task_id, {
+          onProgress: (task) => {
+            const progress = task.progress || 0;
+            const message = task.progress_message || '处理中...';
+            addLog('info', `⏳ ${progress}% - ${message}`);
+          },
+          onComplete: async (task) => {
+            addLog('success', '✅ 卷大纲生成完成！后端已自动保存');
+            addLog('info', '🔄 正在重新加载最新数据...');
+            
+            // 重新加载小说数据（后端已经保存）
+            if (loadNovels) {
+              await loadNovels();
+              addLog('success', '✅ 数据加载完成！');
+            }
+            
+            resolve();
+          },
+          onError: (task) => {
+            addLog('error', `❌ 任务失败: ${task.error_message || '未知错误'}`);
+            reject(new Error(task.error_message || '任务执行失败'));
+          },
+        });
       });
-      addLog('info', '─'.repeat(60));
       
-      // 创建流式传输回调
-      const onChunk = (chunk: string, isComplete: boolean) => {
-        if (isComplete) {
-          addLog('success', '\n✅ 生成完成！');
-        } else if (chunk) {
-          appendStreamChunk(chunk);
-        }
-      };
-      
-      const volumeOutline = await generateVolumeOutline(novel, volumeIndex, onChunk);
-      
-      if (!volumeOutline || !volumeOutline.trim()) {
-        throw new Error('返回的卷大纲为空');
-      }
-      
-      if (!novel.volumes || volumeIndex >= novel.volumes.length) {
-        throw new Error('卷信息已变更，请刷新页面重试');
-      }
-      
-      const updatedVolumes = [...novel.volumes];
-      updatedVolumes[volumeIndex] = {
-        ...updatedVolumes[volumeIndex],
-        outline: volumeOutline
-      };
-      
-      updateNovel({ volumes: updatedVolumes });
-      addLog('success', `✅ 第 ${volumeIndex + 1} 卷详细大纲生成成功！`);
-      addLog('info', `📄 大纲长度: ${volumeOutline.length} 字符`);
     } catch (err: any) {
       addLog('error', `❌ 生成失败: ${err?.message || '未知错误'}`);
       alert(`生成卷大纲失败：${err?.message || '未知错误'}`);
