@@ -266,7 +266,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 # ==================== 小说路由 ====================
 
-@app.get("/api/novels", response_model=List[NovelResponse])
+@app.get("/api/novels")  # 移除response_model验证
 async def get_novels(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
