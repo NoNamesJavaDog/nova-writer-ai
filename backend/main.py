@@ -2147,6 +2147,11 @@ async def write_all_chapters_in_volume(
             characters = task_db.query(Character).filter(Character.novel_id == novel_id).all()
             world_settings = task_db.query(WorldSetting).filter(WorldSetting.novel_id == novel_id).all()
 
+            # 获取全书章节（按卷序+章序）用于跨卷上下文
+            all_chapters_ordered = task_db.query(Chapter).join(Volume).filter(
+                Volume.novel_id == novel_id
+            ).order_by(Volume.volume_order, Chapter.chapter_order).all()
+
             need_write = [ch for ch in chapters if not (ch.content or "").strip()]
             skipped = len(chapters) - len(need_write)
 
@@ -2181,6 +2186,29 @@ async def write_all_chapters_in_volume(
                     task_db.commit()
 
                 try:
+                    # 取当前章之前的最近若干章作为上下文（含前卷）
+                    def make_ctx(chapter_obj):
+                        if chapter_obj.content and chapter_obj.content.strip():
+                            snippet = chapter_obj.content
+                            if len(snippet) > 1200:
+                                snippet = snippet[:900] + "\n[...]\n" + snippet[-250:]
+                            return f"《{chapter_obj.title}》\n{snippet}"
+                        if chapter_obj.summary:
+                            return f"《{chapter_obj.title}》摘要：{chapter_obj.summary}"
+                        return ""
+
+                    ctx_candidates = []
+                    current_key = (volume_obj.volume_order, chapter.chapter_order)
+                    volume_map = {v.id: v.volume_order for v in volumes}
+                    for ch in all_chapters_ordered:
+                        key = (volume_map.get(ch.volume_id, 0), ch.chapter_order)
+                        if key < current_key and (ch.content or ch.summary):
+                            ctx_candidates.append(ch)
+                    ctx_tail = ctx_candidates[-5:]  # 最近5章
+                    previous_context = "\n\n---\n\n".join(
+                        [txt for txt in (make_ctx(ch) for ch in ctx_tail) if txt]
+                    )
+
                     content = write_chapter_content_impl(
                         novel_title=novel_obj.title,
                         genre=novel_obj.genre,
@@ -2190,7 +2218,7 @@ async def write_all_chapters_in_volume(
                         chapter_prompt_hints=chapter.ai_prompt_hints or "",
                         characters=[{"name": c.name, "personality": c.personality} for c in characters],
                         world_settings=[{"title": w.title, "description": w.description} for w in world_settings],
-                        previous_chapters_context=None,
+                        previous_chapters_context=previous_context or None,
                         novel_id=novel_id,
                         current_chapter_id=chapter.id,
                         db_session=task_db
