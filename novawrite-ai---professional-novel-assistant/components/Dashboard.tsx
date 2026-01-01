@@ -42,7 +42,16 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         // 使用 getActiveTasks 获取当前用户的所有活跃任务，然后过滤出当前小说的任务
         // 改为静态导入以避免初始化顺序问题
         const taskService = await import('../services/taskService');
-        const activeTasks = await taskService.getActiveTasks();
+        
+        // 设置超时，避免因网络问题导致长时间等待
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('检查任务超时')), 5000)
+        );
+        
+        const activeTasks = await Promise.race([
+          taskService.getActiveTasks(),
+          timeoutPromise
+        ]) as any[];
         
         // 过滤出当前小说的大纲生成任务（运行中或等待中）
         const outlineTask = activeTasks.find(
