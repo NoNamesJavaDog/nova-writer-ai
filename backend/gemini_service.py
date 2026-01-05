@@ -758,6 +758,18 @@ def write_chapter_content(
                 import logging
                 logging.getLogger(__name__).warning(f"⚠️  智能上下文检索失败，使用原始上下文: {str(e)}")
         
+        # 从chapter_prompt_hints中提取上一章的钩子（如果有）
+        previous_chapter_hook = ""
+        if chapter_prompt_hints and "【上一章钩子】" in chapter_prompt_hints:
+            hook_part = chapter_prompt_hints.split("【上一章钩子】")
+            if len(hook_part) > 1:
+                previous_chapter_hook = hook_part[-1].strip()
+        elif chapter_prompt_hints and "【下一章钩子】" in chapter_prompt_hints:
+            # 兼容旧格式
+            hook_part = chapter_prompt_hints.split("【下一章钩子】")
+            if len(hook_part) > 1:
+                previous_chapter_hook = hook_part[-1].strip()
+        
         # 构建前文上下文部分
         previous_context_section = ""
         if previous_chapters_context and previous_chapters_context.strip():
@@ -778,12 +790,35 @@ def write_chapter_content(
 ⚠️ 注意：上述前文是通过AI语义分析自动推荐的最相关章节，请认真阅读并确保本章内容完全不同。
 """
         
+        # 构建上一章钩子部分
+        previous_hook_section = ""
+        if previous_chapter_hook:
+            previous_hook_section = f"""
+
+【上一章结尾钩子】（必须承接）：
+{previous_chapter_hook}
+
+⚠️ 重要：上一章结尾留下了这个悬念/转折点，本章开头必须自然承接这个钩子，但不能直接重复上一章的结尾内容。应该：
+1. 用1-2句话简短呼应上一章的钩子
+2. 然后立即推进新的情节发展
+3. 不要让读者感觉重复或拖沓
+"""
+        
+        # 清理chapter_prompt_hints，移除钩子标记（钩子已经在previous_hook_section中单独处理）
+        clean_prompt_hints = chapter_prompt_hints or ""
+        if clean_prompt_hints:
+            # 移除钩子标记，保留其他提示
+            clean_prompt_hints = clean_prompt_hints.replace("【下一章钩子】", "").replace("【上一章钩子】", "").strip()
+            # 清理多余的空行
+            clean_prompt_hints = "\n".join([line for line in clean_prompt_hints.split("\n") if line.strip()])
+        
         prompt = f"""请为小说《{novel_title}》创作一个完整的章节。
 
 【章节基本信息】
 - 标题：{chapter_title}
 - 情节摘要：{chapter_summary}
-- 写作提示：{chapter_prompt_hints}
+{f"- 写作提示：{clean_prompt_hints}" if clean_prompt_hints else ""}
+{previous_hook_section}
 
 【小说背景信息】
 - 完整简介：{synopsis}
@@ -833,6 +868,40 @@ def write_chapter_content(
                 
     except Exception as e:
         raise Exception(f"生成章节内容失败: {str(e)}")
+
+
+def summarize_chapter_content(chapter_title: str, chapter_content: str, max_len: int = 400) -> str:
+    """
+    生成章节摘要，控制在约 max_len 字以内；失败则返回截断内容
+    """
+    if not chapter_content:
+        return ""
+    try:
+        prompt = f"""请为以下章节内容生成简明摘要（200-400字），保留主要冲突、关键事件、角色状态变化。仅输出摘要文本。
+
+章节标题：{chapter_title}
+章节内容：
+{chapter_content[:4000]}
+"""
+        response = client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=prompt,
+            config={
+                "temperature": 0.25,
+                "max_output_tokens": 512,
+            },
+        )
+        summary = response.text or ""
+        summary = summary.strip()
+        if len(summary) > max_len:
+            summary = summary[:max_len]
+        return summary
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"章节摘要生成失败，使用截断: {str(e)}")
+        content = chapter_content.strip()
+        if len(content) <= max_len:
+            return content
+        return content[:max_len - 10] + "..."
 
 
 def generate_characters(
@@ -1311,4 +1380,62 @@ def extract_foreshadowings_from_chapter(
         
     except Exception as e:
         raise Exception(f"提取伏笔失败: {str(e)}")
+
+
+def extract_next_chapter_hook(
+    title: str,
+    genre: str,
+    chapter_title: str,
+    chapter_content: str,
+    next_chapter_title: Optional[str] = None,
+    next_chapter_summary: Optional[str] = None
+) -> str:
+    """从章节内容中提取下一章钩子（悬念、转折点等）"""
+    try:
+        next_chapter_info = ""
+        if next_chapter_title:
+            next_chapter_info = f"\n下一章标题：{next_chapter_title}"
+            if next_chapter_summary:
+                next_chapter_info += f"\n下一章摘要：{next_chapter_summary}"
+        
+        prompt = f"""基于以下章节内容，提取本章结尾的"下一章钩子"（悬念、转折点、未解之谜等，用于吸引读者继续阅读）：
+
+小说标题：{title}
+类型：{genre}
+章节标题：{chapter_title}
+章节内容（最后2000字）：{chapter_content[-2000:] if len(chapter_content) > 2000 else chapter_content}
+{next_chapter_info}
+
+请分析本章结尾，提取：
+1. 本章结尾留下的悬念或疑问
+2. 下一章可能的转折点或冲突
+3. 角色状态或情节发展的关键信息
+4. 吸引读者继续阅读的钩子
+
+要求：
+- 钩子应该简洁有力（50-200字）
+- 应该与下一章内容相关（如果提供了下一章信息）
+- 应该能够自然引导到下一章的情节
+
+仅返回钩子文本内容（不要包含"钩子"、"悬念"等标签词），直接输出文本："""
+        
+        response = client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=prompt,
+            config={
+                "temperature": 0.8,
+                "max_output_tokens": 500,
+            }
+        )
+        
+        if not response.text:
+            return ""
+        
+        hook = response.text.strip()
+        return hook
+        
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"提取下一章钩子失败: {str(e)}")
+        return ""
 

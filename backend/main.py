@@ -62,7 +62,7 @@ from gemini_service import (
     write_chapter_content as write_chapter_content_impl,
     generate_characters, generate_world_settings, generate_timeline_events,
     generate_foreshadowings_from_outline, modify_outline_by_dialogue,
-    extract_foreshadowings_from_chapter
+    extract_foreshadowings_from_chapter, extract_next_chapter_hook
 )
 from task_service import create_task, get_task_executor, ProgressCallback
 from services.vector_helper import (
@@ -2262,6 +2262,24 @@ async def write_all_chapters_in_volume(
                     # 重新查询数据库，确保获取到刚刚生成的章节内容（用于下一章的上下文）
                     task_db.refresh(chapter)
                     
+                    # 获取上一章的钩子（如果有）
+                    previous_chapter_hook = ""
+                    if idx > 0:
+                        prev_chapter = chapters[idx - 1]
+                        if prev_chapter.ai_prompt_hints and "【下一章钩子】" in prev_chapter.ai_prompt_hints:
+                            hook_part = prev_chapter.ai_prompt_hints.split("【下一章钩子】")
+                            if len(hook_part) > 1:
+                                previous_chapter_hook = hook_part[-1].strip()
+                    
+                    # 将上一章的钩子添加到当前章的ai_prompt_hints中（如果存在）
+                    current_prompt_hints = chapter.ai_prompt_hints or ""
+                    if previous_chapter_hook:
+                        if "【上一章钩子】" not in current_prompt_hints:
+                            if current_prompt_hints:
+                                current_prompt_hints = f"【上一章钩子】{previous_chapter_hook}\n\n{current_prompt_hints}"
+                            else:
+                                current_prompt_hints = f"【上一章钩子】{previous_chapter_hook}"
+                    
                     # 不传递 previous_chapters_context，让 write_chapter_content_impl 使用向量数据库的智能上下文检索
                     # 这样可以自动获取语义相关的前文章节，包括刚刚生成的章节
                     content = write_chapter_content_impl(
@@ -2270,7 +2288,7 @@ async def write_all_chapters_in_volume(
                         synopsis=novel_obj.synopsis or "",
                         chapter_title=chapter.title,
                         chapter_summary=chapter.summary or "",
-                        chapter_prompt_hints=chapter.ai_prompt_hints or "",
+                        chapter_prompt_hints=current_prompt_hints,
                         characters=[{"name": c.name, "personality": c.personality} for c in characters],
                         world_settings=[{"title": w.title, "description": w.description} for w in world_settings],
                         previous_chapters_context=None,  # 不传递，让函数内部使用向量数据库智能检索
@@ -2295,6 +2313,74 @@ async def write_all_chapters_in_volume(
                     except Exception as e:
                         logger.warning(f"⚠️ 章节 {chapter.id} 向量存储失败（继续下一章）: {str(e)}")
                     
+                    # 提取并保存伏笔
+                    extracted_foreshadowings = []
+                    try:
+                        existing_foreshadowings = task_db.query(Foreshadowing).filter(
+                            Foreshadowing.novel_id == novel_id
+                        ).all()
+                        existing_foreshadowings_list = [{"content": f.content} for f in existing_foreshadowings]
+                        
+                        foreshadowings_data = extract_foreshadowings_from_chapter(
+                            title=novel_obj.title,
+                            genre=novel_obj.genre,
+                            chapter_title=chapter.title,
+                            chapter_content=content,
+                            existing_foreshadowings=existing_foreshadowings_list
+                        )
+                        
+                        if foreshadowings_data:
+                            for foreshadowing_data in foreshadowings_data:
+                                if foreshadowing_data.get("content"):
+                                    foreshadowing = Foreshadowing(
+                                        id=generate_uuid(),
+                                        novel_id=novel_id,
+                                        chapter_id=chapter.id,
+                                        content=foreshadowing_data["content"],
+                                        is_resolved="false",
+                                        foreshadowing_order=len(existing_foreshadowings) + len(extracted_foreshadowings),
+                                        created_at=int(time.time() * 1000),
+                                        updated_at=int(time.time() * 1000)
+                                    )
+                                    task_db.add(foreshadowing)
+                                    extracted_foreshadowings.append(foreshadowing_data["content"])
+                            task_db.commit()
+                            logger.info(f"✅ 章节 {chapter.title} 提取到 {len(extracted_foreshadowings)} 个伏笔")
+                    except Exception as e:
+                        logger.warning(f"⚠️ 提取伏笔失败（继续下一章）: {str(e)}")
+                    
+                    # 提取并保存下一章钩子
+                    next_chapter_hook = ""
+                    try:
+                        # 查找下一章信息
+                        next_chapter = None
+                        if idx + 1 < len(chapters):
+                            next_chapter = chapters[idx + 1]
+                        
+                        next_chapter_title = next_chapter.title if next_chapter else None
+                        next_chapter_summary = next_chapter.summary if next_chapter else None
+                        
+                        next_chapter_hook = extract_next_chapter_hook(
+                            title=novel_obj.title,
+                            genre=novel_obj.genre,
+                            chapter_title=chapter.title,
+                            chapter_content=content,
+                            next_chapter_title=next_chapter_title,
+                            next_chapter_summary=next_chapter_summary
+                        )
+                        
+                        if next_chapter_hook:
+                            # 将钩子保存到章节的ai_prompt_hints字段（追加，保留原有提示）
+                            original_hints = chapter.ai_prompt_hints or ""
+                            if original_hints:
+                                chapter.ai_prompt_hints = f"{original_hints}\n\n【下一章钩子】{next_chapter_hook}"
+                            else:
+                                chapter.ai_prompt_hints = f"【下一章钩子】{next_chapter_hook}"
+                            task_db.commit()
+                            logger.info(f"✅ 章节 {chapter.title} 提取到下一章钩子")
+                    except Exception as e:
+                        logger.warning(f"⚠️ 提取下一章钩子失败（继续下一章）: {str(e)}")
+                    
                     # 短暂延迟，确保向量索引建立完成（可选，但有助于提高检索准确性）
                     import time as time_module
                     time_module.sleep(0.5)
@@ -2310,12 +2396,38 @@ async def write_all_chapters_in_volume(
                 task_obj.status = "completed"
                 task_obj.progress = 100
                 task_obj.progress_message = f"写作完成：成功 {written}，失败 {failed}，跳过 {skipped}"
+                
+                # 收集所有生成的章节的伏笔和钩子信息
+                chapters_info = []
+                for ch in chapters:
+                    if ch.content and ch.content.strip():
+                        # 获取该章节的伏笔
+                        chapter_foreshadowings = task_db.query(Foreshadowing).filter(
+                            Foreshadowing.chapter_id == ch.id
+                        ).all()
+                        foreshadowings_list = [f.content for f in chapter_foreshadowings]
+                        
+                        # 从ai_prompt_hints中提取钩子
+                        hook = ""
+                        if ch.ai_prompt_hints and "【下一章钩子】" in ch.ai_prompt_hints:
+                            hook_part = ch.ai_prompt_hints.split("【下一章钩子】")
+                            if len(hook_part) > 1:
+                                hook = hook_part[-1].strip()
+                        
+                        chapters_info.append({
+                            "chapter_id": ch.id,
+                            "chapter_title": ch.title,
+                            "foreshadowings": foreshadowings_list,
+                            "next_chapter_hook": hook
+                        })
+                
                 task_obj.result = json.dumps({
                     "written": written,
                     "failed": failed,
                     "skipped": skipped,
                     "volume_id": volume_id,
-                    "volume_title": volume_obj.title
+                    "volume_title": volume_obj.title,
+                    "chapters_info": chapters_info  # 包含每章的伏笔和钩子
                 })
                 task_obj.completed_at = int(time.time() * 1000)
                 task_db.commit()
