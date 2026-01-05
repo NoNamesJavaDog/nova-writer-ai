@@ -131,6 +131,23 @@ def rate_limit_auth(request: Request):
         bucket.append(now)
         rate_buckets[client_ip] = bucket
 
+# 高成本任务限速（生成大纲/批量写作等）
+rate_lock_heavy = threading.Lock()
+rate_buckets_heavy: Dict[str, list] = {}
+HEAVY_WINDOW = 300  # 秒
+HEAVY_LIMIT = 10    # 同一 IP 窗口内允许创建的任务数
+
+def rate_limit_heavy(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    with rate_lock_heavy:
+        bucket = rate_buckets_heavy.get(client_ip, [])
+        bucket = [ts for ts in bucket if now - ts < HEAVY_WINDOW]
+        if len(bucket) >= HEAVY_LIMIT:
+            raise HTTPException(status_code=429, detail="生成请求过于频繁，请稍后重试")
+        bucket.append(now)
+        rate_buckets_heavy[client_ip] = bucket
+
 # ==================== 辅助函数 ====================
 
 def to_camel_case(snake_str: str) -> str:
@@ -2154,8 +2171,9 @@ async def write_all_chapters_in_volume(
     if not volume:
         raise HTTPException(status_code=404, detail="卷不存在")
 
-    chapters = db.query(Chapter).filter(Chapter.volume_id == volume_id).order_by(Chapter.chapter_order).all()
-    if not chapters:
+    chapters_query = db.query(Chapter).filter(Chapter.volume_id == volume_id).order_by(Chapter.chapter_order)
+    chapter_ids = [c.id for c in chapters_query.all()]
+    if not chapter_ids:
         raise HTTPException(status_code=400, detail="该卷没有章节，请先生成章节列表")
 
     # 创建任务
@@ -2167,7 +2185,7 @@ async def write_all_chapters_in_volume(
         task_data={
             "volume_id": volume_id,
             "volume_title": volume.title,
-            "chapter_total": len(chapters),
+            "chapter_total": len(chapter_ids),
         }
     )
 
@@ -2188,8 +2206,14 @@ async def write_all_chapters_in_volume(
             # 预取角色/世界观，供章节生成使用
             characters = task_db.query(Character).filter(Character.novel_id == novel_id).all()
             world_settings = task_db.query(WorldSetting).filter(WorldSetting.novel_id == novel_id).all()
+            
+            # 在后台任务中重新获取章节对象
+            chapters = task_db.query(Chapter).filter(Chapter.id.in_(chapter_ids)).order_by(Chapter.chapter_order).all()
 
             # 获取全书章节（按卷序+章序）用于跨卷上下文
+            # 确保在同一个会话中获取所有相关联的对象
+            volumes = task_db.query(Volume).filter(Volume.novel_id == novel_id).order_by(Volume.volume_order).all()
+            volume_map = {v.id: v.volume_order for v in volumes}
             all_chapters_ordered = task_db.query(Chapter).join(Volume).filter(
                 Volume.novel_id == novel_id
             ).order_by(Volume.volume_order, Chapter.chapter_order).all()
@@ -3146,6 +3170,7 @@ async def generate_all_chapters_task(
     novel_id: str,
     force: bool = Query(False),
     chapter_count: Optional[int] = Query(None),
+    request: Request = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -3154,6 +3179,10 @@ async def generate_all_chapters_task(
     - 默认只生成没有章节的卷；force=true 时会覆盖已存在章节列表
     - chapter_count: 可选，指定“每卷”生成的章节数量（1-50）
     """
+    # 限流：高成本任务
+    if request:
+        rate_limit_heavy(request)
+
     # 验证小说存在
     novel = db.query(Novel).filter(
         Novel.id == novel_id,
