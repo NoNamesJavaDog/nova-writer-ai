@@ -2162,12 +2162,14 @@ async def write_chapter(
 async def write_all_chapters_in_volume(
     novel_id: str,
     volume_id: str,
+    from_start: bool = Query(False, description="是否从第一章开始（覆盖已有内容）"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    一键写作某卷内所有未生成内容的章节（后端执行业务逻辑）
-    - 仅生成 content 为空的章节；已有内容的章节自动跳过
+    一键写作某卷内所有章节（后端执行业务逻辑）
+    - from_start=False: 仅生成 content 为空的章节；已有内容的章节自动跳过
+    - from_start=True: 从第一章开始重新生成所有章节（覆盖已有内容）
     - 生成完成后自动存储章节向量
     """
     novel = db.query(Novel).filter(Novel.id == novel_id, Novel.user_id == current_user.id).first()
@@ -2225,8 +2227,14 @@ async def write_all_chapters_in_volume(
                 Volume.novel_id == novel_id
             ).order_by(Volume.volume_order, Chapter.chapter_order).all()
 
-            need_write = [ch for ch in chapters if not (ch.content or "").strip()]
-            skipped = len(chapters) - len(need_write)
+            if from_start:
+                # 从第一章开始，重新生成所有章节
+                need_write = chapters
+                skipped = 0
+            else:
+                # 仅生成未写作的章节
+                need_write = [ch for ch in chapters if not (ch.content or "").strip()]
+                skipped = len(chapters) - len(need_write)
 
             if not need_write:
                 if task_obj:
@@ -2249,7 +2257,8 @@ async def write_all_chapters_in_volume(
             embedding_service = EmbeddingService()
 
             for idx, chapter in enumerate(chapters):
-                if (chapter.content or "").strip():
+                # 如果是从第一章开始，跳过检查；否则只处理未写作的章节
+                if not from_start and (chapter.content or "").strip():
                     continue
 
                 progress = int((written + failed) / total_to_write * 100)

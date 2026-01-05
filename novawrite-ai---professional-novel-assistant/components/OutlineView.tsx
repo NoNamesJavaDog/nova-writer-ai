@@ -447,18 +447,42 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
       return;
     }
     
+    // 统计已有内容的章节数量
+    const chaptersWithContent = volume.chapters.filter(ch => ch.content && ch.content.trim()).length;
+    const totalChapters = volume.chapters.length;
+    
+    // 弹出选择对话框
+    let fromStart = false;
+    if (chaptersWithContent > 0) {
+      const userChoice = window.confirm(
+        `本卷共有 ${totalChapters} 章，其中 ${chaptersWithContent} 章已有内容。\n\n` +
+        `请选择写作模式：\n\n` +
+        `点击"确定"：从第一章开始重新生成（覆盖已有内容）\n` +
+        `点击"取消"：继续从未写作的章节开始（保留已有内容）`
+      );
+      fromStart = userChoice;
+    }
+    
     setWritingVolumeIdx(volumeIndex);
     setShowConsole(true);
     setConsoleMinimized(false);
     clearLogs();
     
     try {
-      addLog('step', `🚀 正在调用后端批量生成第 ${volumeIndex + 1} 卷《${volume.title}》的未写作章节...`);
+      if (fromStart) {
+        addLog('step', `🚀 正在调用后端批量生成第 ${volumeIndex + 1} 卷《${volume.title}》的所有章节（从第一章开始）...`);
+        addLog('warning', `⚠️ 注意：将覆盖 ${chaptersWithContent} 个已有内容的章节`);
+      } else {
+        addLog('step', `🚀 正在调用后端批量生成第 ${volumeIndex + 1} 卷《${volume.title}》的未写作章节...`);
+        if (chaptersWithContent > 0) {
+          addLog('info', `ℹ️ 将跳过 ${chaptersWithContent} 个已有内容的章节`);
+        }
+      }
       addLog('info', '💡 所有业务逻辑在后端完成，数据将直接保存到数据库并存储向量');
       
       // 调用后端任务API
       const { novelApi } = await import('../services/apiService');
-      const taskResult = await novelApi.writeVolumeChapters(novel.id, volume.id);
+      const taskResult = await novelApi.writeVolumeChapters(novel.id, volume.id, fromStart);
       
       if (!taskResult.task_id) {
         throw new Error('任务创建失败：未返回任务ID');

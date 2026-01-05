@@ -525,8 +525,9 @@ export const novelApi = {
   },
 
   // 一键写作某卷全部未写作章节（后端任务）
-  writeVolumeChapters: async (novelId: string, volumeId: string): Promise<{ task_id: string }> => {
-    return apiRequest<{ task_id: string }>(`/api/novels/${novelId}/volumes/${volumeId}/write-all-chapters`, {
+  writeVolumeChapters: async (novelId: string, volumeId: string, fromStart: boolean = false): Promise<{ task_id: string }> => {
+    const params = fromStart ? '?from_start=true' : '';
+    return apiRequest<{ task_id: string }>(`/api/novels/${novelId}/volumes/${volumeId}/write-all-chapters${params}`, {
       method: 'POST',
     });
   },
