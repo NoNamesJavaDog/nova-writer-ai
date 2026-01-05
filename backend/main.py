@@ -1077,35 +1077,42 @@ async def delete_volume(
 
 # ==================== 章节路由 ====================
 
-@app.get("/api/volumes/{volume_id}/chapters", response_model=List[ChapterResponse])
+@app.get("/api/volumes/{volume_id}/chapters")  # 移除response_model验证，因为返回camelCase格式
 async def get_chapters(
     volume_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """获取卷的所有章节"""
-    volume = db.query(Volume).join(Novel).filter(
-        Volume.id == volume_id,
-        Novel.user_id == current_user.id
-    ).first()
-    if not volume:
-        raise HTTPException(status_code=404, detail="卷不存在")
-    
-    result = []
-    for chapter in volume.chapters:
-        chapter_dict = {
-            "id": chapter.id,
-            "volume_id": chapter.volume_id,
-            "title": chapter.title,
-            "summary": chapter.summary or "",
-            "content": chapter.content or "",
-            "ai_prompt_hints": chapter.ai_prompt_hints or "",
-            "chapter_order": chapter.chapter_order,
-            "created_at": chapter.created_at,
-            "updated_at": chapter.updated_at
-        }
-        result.append(convert_to_camel_case(chapter_dict))
-    return result
+    try:
+        volume = db.query(Volume).join(Novel).filter(
+            Volume.id == volume_id,
+            Novel.user_id == current_user.id
+        ).first()
+        if not volume:
+            raise HTTPException(status_code=404, detail="卷不存在")
+        
+        result = []
+        for chapter in volume.chapters:
+            chapter_dict = {
+                "id": chapter.id,
+                "volume_id": chapter.volume_id,
+                "title": chapter.title,
+                "summary": chapter.summary or "",
+                "content": chapter.content or "",
+                "ai_prompt_hints": chapter.ai_prompt_hints or "",
+                "chapter_order": chapter.chapter_order,
+                "created_at": chapter.created_at,
+                "updated_at": chapter.updated_at
+            }
+            result.append(convert_to_camel_case(chapter_dict))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取章节列表失败: {str(e)}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"获取章节列表失败: {str(e)}")
 
 @app.post("/api/volumes/{volume_id}/chapters", response_model=List[ChapterResponse])
 async def create_chapters(
