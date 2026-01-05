@@ -5,34 +5,59 @@ import type { Novel, Character, WorldSetting, TimelineEvent, Foreshadowing, Volu
 // 使用相对路径，由 Nginx 代理到后端
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
+// 统一的 Token 存储：优先 sessionStorage，启动时迁移 legacy localStorage
+const TOKEN_KEY = 'access_token';
+const REFRESH_KEY = 'refresh_token';
+
+const migrateLocalToSession = () => {
+  try {
+    const legacyAccess = localStorage.getItem(TOKEN_KEY);
+    const legacyRefresh = localStorage.getItem(REFRESH_KEY);
+    if (legacyAccess) {
+      sessionStorage.setItem(TOKEN_KEY, legacyAccess);
+      localStorage.removeItem(TOKEN_KEY);
+    }
+    if (legacyRefresh) {
+      sessionStorage.setItem(REFRESH_KEY, legacyRefresh);
+      localStorage.removeItem(REFRESH_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+};
+
 // 获取存储的访问令牌
 const getToken = (): string | null => {
-  return localStorage.getItem('access_token');
+  migrateLocalToSession();
+  return sessionStorage.getItem(TOKEN_KEY);
 };
 
 // 获取存储的刷新令牌
 const getRefreshToken = (): string | null => {
-  return localStorage.getItem('refresh_token');
+  migrateLocalToSession();
+  return sessionStorage.getItem(REFRESH_KEY);
 };
 
 // 设置访问令牌
 const setToken = (token: string): void => {
-  localStorage.setItem('access_token', token);
+  sessionStorage.setItem(TOKEN_KEY, token);
 };
 
 // 设置刷新令牌
 const setRefreshToken = (token: string): void => {
-  localStorage.setItem('refresh_token', token);
+  sessionStorage.setItem(REFRESH_KEY, token);
 };
 
 // 清除访问令牌
 const clearToken = (): void => {
-  localStorage.removeItem('access_token');
+  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
 };
 
 // 清除刷新令牌
 const clearRefreshToken = (): void => {
-  localStorage.removeItem('refresh_token');
+  sessionStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(REFRESH_KEY);
 };
 
 // 清除所有令牌
