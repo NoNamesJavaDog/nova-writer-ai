@@ -370,6 +370,7 @@ async def get_novels(
                         "summary": ch.summary or "",
                         "content": "",  # 不返回章节内容，减少数据量
                         "aiPromptHints": ch.ai_prompt_hints or "",
+                        "hasContent": bool(ch.content and ch.content.strip()),  # 添加标志字段，表示章节是否有内容
                     } for ch in sorted(v.chapters, key=lambda c: c.chapter_order)]
                 } for v in novel.volumes], key=lambda x: x["volumeOrder"]),
                 "characters": [{

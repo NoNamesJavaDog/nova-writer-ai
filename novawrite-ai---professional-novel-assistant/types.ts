@@ -38,6 +38,7 @@ export interface Chapter {
   content: string;
   aiPromptHints: string;
   isGenerating?: boolean;
+  hasContent?: boolean;  // 章节是否有内容（用于判断，避免加载完整内容）
 }
 
 export interface Volume {

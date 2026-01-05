@@ -448,7 +448,8 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
     }
     
     // 统计已有内容的章节数量
-    const chaptersWithContent = volume.chapters.filter(ch => ch.content && ch.content.trim()).length;
+    // 使用 hasContent 字段判断（后端已提供）
+    const chaptersWithContent = volume.chapters.filter((ch: any) => ch.hasContent === true).length;
     const totalChapters = volume.chapters.length;
     
     // 弹出选择对话框
