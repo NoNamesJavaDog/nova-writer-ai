@@ -447,22 +447,38 @@ const OutlineView: React.FC<OutlineViewProps> = ({ novel, updateNovel, loadNovel
       return;
     }
     
-    // 统计已有内容的章节数量
-    // 使用 hasContent 字段判断（后端已提供）
-    const chaptersWithContent = volume.chapters.filter((ch: any) => ch.hasContent === true).length;
+    // 统计已有内容的章节数量（用于显示信息）
+    let chaptersWithContent = 0;
     const totalChapters = volume.chapters.length;
     
-    // 弹出选择对话框
-    let fromStart = false;
-    if (chaptersWithContent > 0) {
-      const userChoice = window.confirm(
-        `本卷共有 ${totalChapters} 章，其中 ${chaptersWithContent} 章已有内容。\n\n` +
-        `请选择写作模式：\n\n` +
-        `点击"确定"：从第一章开始重新生成（覆盖已有内容）\n` +
-        `点击"取消"：继续从未写作的章节开始（保留已有内容）`
-      );
-      fromStart = userChoice;
+    // 检查是否有 hasContent 字段
+    const hasHasContentField = volume.chapters.some((ch: any) => 'hasContent' in ch || ch.hasContent !== undefined);
+    
+    if (hasHasContentField) {
+      // 使用 hasContent 字段判断
+      chaptersWithContent = volume.chapters.filter((ch: any) => {
+        return ch.hasContent === true || ch.hasContent === 'true';
+      }).length;
+    } else {
+      // 如果没有 hasContent 字段，通过API获取章节内容信息
+      try {
+        const { chapterApi } = await import('../services/apiService');
+        const chaptersWithContentData = await chapterApi.getAll(volume.id);
+        chaptersWithContent = chaptersWithContentData.filter(ch => ch.content && ch.content.trim()).length;
+      } catch (err) {
+        console.warn('获取章节内容失败，假设没有已写章节:', err);
+        chaptersWithContent = 0;
+      }
     }
+    
+    // 总是弹出选择对话框，让用户选择写作模式
+    const userChoice = window.confirm(
+      `本卷共有 ${totalChapters} 章${chaptersWithContent > 0 ? `，其中 ${chaptersWithContent} 章已有内容` : ''}。\n\n` +
+      `请选择写作模式：\n\n` +
+      `点击"确定"：从第一章开始重新生成${chaptersWithContent > 0 ? '（覆盖已有内容）' : ''}\n` +
+      `点击"取消"：继续从未写作的章节开始${chaptersWithContent > 0 ? '（保留已有内容）' : ''}`
+    );
+    const fromStart = userChoice;
     
     setWritingVolumeIdx(volumeIndex);
     setShowConsole(true);
