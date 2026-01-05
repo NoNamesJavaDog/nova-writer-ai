@@ -2,9 +2,10 @@
 NovaWrite AI 后端主应用
 包含所有 API 路由
 """
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import and_, or_
 from typing import List, Optional, Dict, Any
@@ -12,6 +13,7 @@ import time
 import json
 import uuid
 import logging
+import threading
 
 from config import CORS_ORIGINS, DEBUG
 from database import get_db, SessionLocal
@@ -92,6 +94,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 基础安全头 & HSTS（假设部署于 HTTPS）
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # 若未在 HTTPS 环境，请关闭以下 HSTS
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+    return response
+
+# 全局异常脱敏：避免把内部错误/SQL暴露给前端
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        # 保留 FastAPI 的 HTTPException 行为
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    logger.error(f"Unhandled error: {str(exc)}", exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "服务器开小差，请稍后重试"})
+
+# 简单内存限速（每进程），用于登录/刷新等高敏接口
+rate_lock = threading.Lock()
+rate_buckets: Dict[str, list] = {}
+RATE_WINDOW = 60  # 秒
+RATE_LIMIT = 20   # 同一 IP 窗口内允许请求数
+
+def rate_limit_auth(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    with rate_lock:
+        bucket = rate_buckets.get(client_ip, [])
+        bucket = [ts for ts in bucket if now - ts < RATE_WINDOW]
+        if len(bucket) >= RATE_LIMIT:
+            raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+        bucket.append(now)
+        rate_buckets[client_ip] = bucket
+
 # ==================== 辅助函数 ====================
 
 def to_camel_case(snake_str: str) -> str:
@@ -171,8 +210,9 @@ async def check_login_status_endpoint(
     return status_info
 
 @app.post("/api/auth/login", response_model=Token)
-async def login(login_data: UserLogin, db: Session = Depends(get_db)):
+async def login(login_data: UserLogin, request: Request, db: Session = Depends(get_db)):
     """用户登录"""
+    rate_limit_auth(request)
     user = get_user_by_username_or_email(db, login_data.username_or_email)
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -227,9 +267,11 @@ async def login(login_data: UserLogin, db: Session = Depends(get_db)):
 @app.post("/api/auth/refresh", response_model=Token)
 async def refresh_token(
     refresh_data: RefreshTokenRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """刷新访问令牌"""
+    rate_limit_auth(request)
     user_id = verify_refresh_token(refresh_data.refresh_token)
     if not user_id:
         raise HTTPException(status_code=401, detail="无效的刷新令牌")
