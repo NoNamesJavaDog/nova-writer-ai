@@ -46,6 +46,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   const [consoleMinimized, setConsoleMinimized] = useState(false);
   const [showMobileChapterMenu, setShowMobileChapterMenu] = useState(false);
   const isMountedRef = useRef(true);
+  const loadingChaptersRef = useRef<Set<string>>(new Set()); // 记录正在加载的章节ID，避免重复请求
 
   // 添加日志
   const addLog = (type: LogEntry['type'], message: string) => {
@@ -116,6 +117,54 @@ const EditorView: React.FC<EditorViewProps> = ({
     }
   }, []);
 
+  // 当切换章节时，如果章节内容为空，则从后端获取最新内容
+  useEffect(() => {
+    if (activeChapterIdx === null || activeVolumeIdx === null) return;
+    
+    const volume = novel.volumes[activeVolumeIdx];
+    if (!volume || !volume.id) return;
+    
+    const chapter = volume.chapters[activeChapterIdx];
+    if (!chapter || !chapter.id) return;
+    
+    // 如果章节内容为空，尝试从后端获取
+    // 使用 volume.id 作为 key，避免同一卷的多个章节重复请求
+    const volumeKey = volume.id;
+    if ((!chapter.content || !chapter.content.trim()) && !loadingChaptersRef.current.has(volumeKey)) {
+      loadingChaptersRef.current.add(volumeKey);
+      
+      const loadChapterContent = async () => {
+        try {
+          // 获取整个卷的所有章节（包括内容），这样可以一次性更新所有章节
+          const chaptersWithContent = await chapterApi.getAll(volume.id);
+          
+          // 更新本地 novel 对象中的章节内容
+          const updatedVolumes = [...novel.volumes];
+          const currentVolume = updatedVolumes[activeVolumeIdx];
+          
+          // 将后端返回的章节内容更新到本地
+          chaptersWithContent.forEach(backendChapter => {
+            const localChapterIndex = currentVolume.chapters.findIndex(
+              ch => ch.id === backendChapter.id
+            );
+            if (localChapterIndex !== -1 && backendChapter.content) {
+              currentVolume.chapters[localChapterIndex].content = backendChapter.content;
+            }
+          });
+          
+          updateNovel({ volumes: updatedVolumes });
+        } catch (err: any) {
+          // 静默失败，不影响用户体验
+          console.warn('获取章节内容失败:', err?.message || '未知错误');
+        } finally {
+          // 加载完成后，移除标记，允许下次重新加载（因为后端可能已经更新了内容）
+          loadingChaptersRef.current.delete(volumeKey);
+        }
+      };
+      
+      loadChapterContent();
+    }
+  }, [activeChapterIdx, activeVolumeIdx]);
 
   const chapters = novel.volumes[activeVolumeIdx]?.chapters || [];
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;

@@ -1,6 +1,7 @@
 """Gemini API 服务模块"""
 import os
 import json
+import logging
 from typing import Optional, AsyncGenerator
 from google import genai
 from config import GEMINI_API_KEY
