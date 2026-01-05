@@ -2259,29 +2259,11 @@ async def write_all_chapters_in_volume(
                     task_db.commit()
 
                 try:
-                    # 取当前章之前的最近若干章作为上下文（含前卷）
-                    def make_ctx(chapter_obj):
-                        if chapter_obj.content and chapter_obj.content.strip():
-                            snippet = chapter_obj.content
-                            if len(snippet) > 1200:
-                                snippet = snippet[:900] + "\n[...]\n" + snippet[-250:]
-                            return f"《{chapter_obj.title}》\n{snippet}"
-                        if chapter_obj.summary:
-                            return f"《{chapter_obj.title}》摘要：{chapter_obj.summary}"
-                        return ""
-
-                    ctx_candidates = []
-                    current_key = (volume_obj.volume_order, chapter.chapter_order)
-                    volume_map = {v.id: v.volume_order for v in volumes}
-                    for ch in all_chapters_ordered:
-                        key = (volume_map.get(ch.volume_id, 0), ch.chapter_order)
-                        if key < current_key and (ch.content or ch.summary):
-                            ctx_candidates.append(ch)
-                    ctx_tail = ctx_candidates[-5:]  # 最近5章
-                    previous_context = "\n\n---\n\n".join(
-                        [txt for txt in (make_ctx(ch) for ch in ctx_tail) if txt]
-                    )
-
+                    # 重新查询数据库，确保获取到刚刚生成的章节内容（用于下一章的上下文）
+                    task_db.refresh(chapter)
+                    
+                    # 不传递 previous_chapters_context，让 write_chapter_content_impl 使用向量数据库的智能上下文检索
+                    # 这样可以自动获取语义相关的前文章节，包括刚刚生成的章节
                     content = write_chapter_content_impl(
                         novel_title=novel_obj.title,
                         genre=novel_obj.genre,
@@ -2291,7 +2273,7 @@ async def write_all_chapters_in_volume(
                         chapter_prompt_hints=chapter.ai_prompt_hints or "",
                         characters=[{"name": c.name, "personality": c.personality} for c in characters],
                         world_settings=[{"title": w.title, "description": w.description} for w in world_settings],
-                        previous_chapters_context=previous_context or None,
+                        previous_chapters_context=None,  # 不传递，让函数内部使用向量数据库智能检索
                         novel_id=novel_id,
                         current_chapter_id=chapter.id,
                         db_session=task_db
@@ -2301,7 +2283,7 @@ async def write_all_chapters_in_volume(
                     chapter.updated_at = int(time.time() * 1000)
                     task_db.commit()
 
-                    # 同步存储向量
+                    # 同步存储向量（确保下一章能检索到本章内容）
                     try:
                         embedding_service.store_chapter_embedding(
                             db=task_db,
@@ -2309,8 +2291,13 @@ async def write_all_chapters_in_volume(
                             novel_id=novel_id,
                             content=content
                         )
+                        logger.info(f"✅ 章节 {chapter.title} 向量存储成功，下一章可以检索到")
                     except Exception as e:
-                        logger.warning(f"章节 {chapter.id} 向量存储失败（继续下一章）: {str(e)}")
+                        logger.warning(f"⚠️ 章节 {chapter.id} 向量存储失败（继续下一章）: {str(e)}")
+                    
+                    # 短暂延迟，确保向量索引建立完成（可选，但有助于提高检索准确性）
+                    import time as time_module
+                    time_module.sleep(0.5)
 
                     written += 1
                 except Exception as e:
