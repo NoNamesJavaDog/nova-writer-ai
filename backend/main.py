@@ -3016,6 +3016,7 @@ async def generate_volume_outline_task(
 async def generate_all_volume_outlines_task(
     novel_id: str,
     force: bool = Query(False),
+    request: Request = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -3023,6 +3024,10 @@ async def generate_all_volume_outlines_task(
     一键生成所有卷的详细大纲并保存到数据库
     - 默认只生成缺失卷大纲的卷；force=true 时会覆盖已存在的卷大纲
     """
+    # 限流：高成本任务
+    if request:
+        rate_limit_heavy(request)
+
     # 验证小说存在
     novel = db.query(Novel).filter(
         Novel.id == novel_id,
