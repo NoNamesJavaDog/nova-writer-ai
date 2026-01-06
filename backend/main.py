@@ -3710,11 +3710,12 @@ async def generate_all_chapters_task(
                     final_chapter_count = chapter_count
                     if not final_chapter_count and volume_obj.outline:
                         import re
-                        chapter_match = re.search(r'【章节规划】：?\s*(\d+)\s*章', volume_obj.outline)
+                        # 支持多种格式：【章节规划】：10章、【章节规划】10章、【章节规划】: 10章、章节规划：10章等
+                        chapter_match = re.search(r'[【]?章节规划[】]?[：:\s]*(\d+)\s*章', volume_obj.outline)
                         if chapter_match:
                             extracted_count = int(chapter_match.group(1))
                             final_chapter_count = extracted_count
-                            logger.info(f"第 {vol_index + 1} 卷：从卷大纲中提取到章节规划：{final_chapter_count} 章")
+                            logger.info(f"第 {vol_index + 1} 卷：从卷大纲中提取到章节规划：{final_chapter_count} 章（原文：{chapter_match.group(0)}）")
 
                     chapters_data = generate_chapter_outline_impl(
                         novel_title=novel_obj.title,
@@ -3970,11 +3971,12 @@ async def generate_chapters_task(
             final_chapter_count = chapter_count
             if not final_chapter_count and volume_obj.outline:
                 import re
-                chapter_match = re.search(r'【章节规划】：?\s*(\d+)\s*章', volume_obj.outline)
+                # 支持多种格式：【章节规划】：10章、【章节规划】10章、【章节规划】: 10章、章节规划：10章等
+                chapter_match = re.search(r'[【]?章节规划[】]?[：:\s]*(\d+)\s*章', volume_obj.outline)
                 if chapter_match:
                     extracted_count = int(chapter_match.group(1))
                     final_chapter_count = extracted_count
-                    logger.info(f"从卷大纲中提取到章节规划：{final_chapter_count} 章")
+                    logger.info(f"从卷大纲中提取到章节规划：{final_chapter_count} 章（原文：{chapter_match.group(0)}）")
                     progress.update(16, f"从卷大纲中检测到章节规划：{final_chapter_count} 章")
 
             # 生成章节列表
