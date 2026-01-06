@@ -72,7 +72,7 @@ function Test-Command {
     
     try {
         $result = Invoke-Expression $Command 2>&1
-        if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq $null) {
+        if (($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq $null) -or ($result -like "*Everything up-to-date*")) {
             Write-Success $SuccessMessage
             return $true
         } else {
