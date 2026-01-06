@@ -2809,6 +2809,15 @@ async def write_chapter_task(
                         previous_chapter_hook = hook_part[-1].strip()
                         logger.info(f"💡 获取到上一章钩子：{previous_chapter_hook[:50]}...")
 
+            # 将上一章的钩子添加到当前章的ai_prompt_hints中（如果存在）
+            current_prompt_hints = chapter_obj.ai_prompt_hints or ""
+            if previous_chapter_hook:
+                if "【上一章钩子】" not in current_prompt_hints:
+                    if current_prompt_hints:
+                        current_prompt_hints = f"【上一章钩子】{previous_chapter_hook}\n\n{current_prompt_hints}".strip()
+                    else:
+                        current_prompt_hints = f"【上一章钩子】{previous_chapter_hook}"
+
             # 更新进度
             if task_obj:
                 task_obj.progress = 10
@@ -2822,14 +2831,13 @@ async def write_chapter_task(
                 synopsis=novel_obj.synopsis or "",
                 chapter_title=chapter_obj.title,
                 chapter_summary=chapter_obj.summary or "",
-                chapter_prompt_hints=chapter_obj.ai_prompt_hints or "",
+                chapter_prompt_hints=current_prompt_hints,
                 characters=[{"name": c.name, "personality": c.personality} for c in characters],
                 world_settings=[{"title": w.title, "description": w.description} for w in world_settings],
                 previous_chapters_context=None,  # 使用向量数据库智能检索
                 novel_id=novel_id,
                 current_chapter_id=chapter_obj.id,
-                db_session=task_db,
-                previous_chapter_hook=previous_chapter_hook
+                db_session=task_db
             )
 
             chapter_obj.content = content
