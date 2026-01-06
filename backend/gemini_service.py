@@ -514,7 +514,8 @@ def write_chapter_content_stream(
     previous_chapters_context: Optional[str] = None,
     novel_id: Optional[str] = None,
     current_chapter_id: Optional[str] = None,
-    db_session=None
+    db_session=None,
+    forced_previous_chapter_context: Optional[str] = None
 ):
     """生成章节内容（流式）"""
     try:
@@ -615,11 +616,34 @@ def write_chapter_content_stream(
         
         # 构建前文上下文部分（增强版，更强调避免重复）
         previous_context_section = ""
-        if previous_chapters_context and previous_chapters_context.strip():
+        
+        # 优先使用强制上下文（当前章节内容）
+        if forced_previous_chapter_context and forced_previous_chapter_context.strip():
             previous_context_section = f"""
+
+{forced_previous_chapter_context}
+
+⚠️ 重要：这是上一章的结尾内容，下一章必须自然承接这个结尾，不能出现情节跳跃或逻辑断裂。
+"""
+        
+        # 添加向量检索的其他相关章节（作为参考）
+        if previous_chapters_context and previous_chapters_context.strip():
+            if previous_context_section:
+                previous_context_section += f"""
+
+【相关前文参考】（基于向量相似度智能推荐的其他相关章节）：
+{previous_chapters_context}
+"""
+            else:
+                previous_context_section = f"""
 
 【前文内容参考】（基于向量相似度智能推荐的相关章节）：
 {previous_chapters_context}
+"""
+        
+        # 添加重复内容检查要求
+        if previous_context_section:
+            previous_context_section += """
 
 🚨 【重复内容检查要求】- 必须严格遵守：
 1. ❌ 绝对禁止：重复前文中已经完整描述过的场景、事件、对话
@@ -630,7 +654,7 @@ def write_chapter_content_stream(
 6. ✅ 正确做法：采用不同的叙述视角、情绪基调、描写重点
 7. ✅ 正确做法：确保本章有独特的核心事件，与前文明显区分
 
-⚠️ 注意：上述前文是通过AI语义分析自动推荐的最相关章节，请认真阅读并确保本章内容完全不同。
+⚠️ 注意：请认真阅读上述前文内容，确保本章内容完全原创且与前文连贯。
 """
         
         prompt = f"""请为小说《{novel_title}》创作一个完整的章节。
@@ -704,7 +728,8 @@ def write_chapter_content(
     novel_id: Optional[str] = None,
     current_chapter_id: Optional[str] = None,
     db_session=None,
-    progress_callback=None
+    progress_callback=None,
+    forced_previous_chapter_context: Optional[str] = None
 ) -> str:
     """生成章节内容（非流式，返回完整文本）"""
     try:

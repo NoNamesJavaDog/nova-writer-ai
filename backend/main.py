@@ -2567,6 +2567,21 @@ async def write_next_chapter(
                     previous_chapter_hook = hook_part[-1].strip()
                     logger.info(f"💡 获取到上一章钩子：{previous_chapter_hook[:50]}...")
 
+            # 🔥 关键修复：强制包含当前章节内容作为上下文
+            # 确保下一章能够承接上一章的结尾，保证连贯性
+            forced_previous_chapter_context = ""
+            current_chapter_content = current_chapter_obj.content or ""
+            if current_chapter_content and current_chapter_content.strip():
+                # 取当前章节的最后1500字（结尾部分，最重要）
+                content_preview = current_chapter_content[-1500:] if len(current_chapter_content) > 1500 else current_chapter_content
+                forced_previous_chapter_context = f"""【上一章内容】（必须承接）：
+章节标题：{current_chapter_obj.title}
+章节结尾内容：
+{content_preview}"""
+                logger.info(f"✅ 强制包含上一章内容作为上下文（{len(content_preview)}字）")
+            else:
+                logger.warning(f"⚠️ 当前章节《{current_chapter_obj.title}》没有内容，无法提供上下文")
+
             # 更新进度
             if task_obj:
                 task_obj.progress = 10
@@ -2586,7 +2601,8 @@ async def write_next_chapter(
                 previous_chapters_context=None,  # 使用向量数据库智能检索
                 novel_id=novel_id,
                 current_chapter_id=next_chapter_obj.id,
-                db_session=task_db
+                db_session=task_db,
+                forced_previous_chapter_context=forced_previous_chapter_context  # 🔥 传递强制上下文
             )
 
             next_chapter_obj.content = content
