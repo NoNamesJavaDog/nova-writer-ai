@@ -18,7 +18,7 @@ import {
   Copy,
   Download
 } from 'lucide-react';
-import { writeChapterContent, writeNextChapterContent, expandText, polishText, extractForeshadowingsFromChapter } from '../services/geminiService';
+import { writeChapterContent, expandText, polishText, extractForeshadowingsFromChapter } from '../services/geminiService';
 import { foreshadowingApi, chapterApi } from '../services/apiService';
 import Console, { LogEntry } from './Console';
 
@@ -29,6 +29,7 @@ interface EditorViewProps {
   activeChapterIdx: number | null;
   setActiveChapterIdx: (idx: number | null) => void;
   setActiveVolumeIdx?: (idx: number) => void;
+  loadNovels?: () => Promise<void>;
 }
 
 const EditorView: React.FC<EditorViewProps> = ({ 
@@ -37,7 +38,8 @@ const EditorView: React.FC<EditorViewProps> = ({
   activeVolumeIdx, 
   activeChapterIdx, 
   setActiveChapterIdx,
-  setActiveVolumeIdx
+  setActiveVolumeIdx,
+  loadNovels
 }) => {
   const [isWriting, setIsWriting] = useState(false);
   const [selectedText, setSelectedText] = useState("");
@@ -514,6 +516,28 @@ const EditorView: React.FC<EditorViewProps> = ({
   const handleGenerateNextChapter = async () => {
     if (activeChapterIdx === null || nextChapterIndex === null) return;
     if (!isMountedRef.current) return;
+    if (!novel.id) {
+      alert("小说ID无效");
+      return;
+    }
+    
+    const volume = novel.volumes[activeVolumeIdx];
+    if (!volume || !volume.id) {
+      alert('卷信息无效');
+      return;
+    }
+    
+    const currentChapter = chapters[activeChapterIdx];
+    if (!currentChapter || !currentChapter.id) {
+      alert('当前章节信息无效');
+      return;
+    }
+    
+    const nextChapter = chapters[nextChapterIndex];
+    if (!nextChapter) {
+      alert('没有下一章节');
+      return;
+    }
     
     setIsWriting(true);
     setShowConsole(true);
@@ -521,148 +545,84 @@ const EditorView: React.FC<EditorViewProps> = ({
     clearLogs();
     
     try {
-      const nextChapter = chapters[nextChapterIndex];
       addLog('step', `📝 生成下一章节: ${nextChapter.title}`);
-      addLog('info', `📄 当前章节: ${currentChapter?.title}`);
+      addLog('info', `📄 当前章节: ${currentChapter.title}`);
       addLog('info', `📄 下一章节: ${nextChapter.title}`);
+      addLog('info', '💡 所有业务逻辑在后端完成，数据将直接保存到数据库并存储向量');
       
-      // 构建提示词
-      const currentVolume = novel.volumes[activeVolumeIdx];
-      const previousChapters = chapters
-        .slice(Math.max(0, activeChapterIdx - 2), activeChapterIdx + 1)
-        .map((ch, idx) => `第${Math.max(0, activeChapterIdx - 2) + idx + 1}章：${ch.title}。\n内容：${ch.content.substring(0, 500)}${ch.content.length > 500 ? '...' : ''}`)
-        .join('\n\n');
+      // 调用后端任务API
+      const { novelApi } = await import('../services/apiService');
+      const taskResult = await novelApi.writeNextChapter(novel.id, volume.id, currentChapter.id);
       
-      const nextChapterPrompt = `请为小说《${novel.title}》创作下一章节的内容。
-小说基本信息：类型：${novel.genre}
-简介：${novel.synopsis}
-
-当前卷信息：
-卷标题：${currentVolume.title}
-${currentVolume.summary ? `卷描述：${currentVolume.summary}` : ''}
-
-前文内容（最近几章）：
-${previousChapters || '（这是本卷的第一章）'}
-
-当前章节信息：
-章节标题：${currentChapter?.title}
-${currentChapter?.content ? `当前章节内容预览：${currentChapter.content.substring(0, 500)}${currentChapter.content.length > 500 ? '...' : ''}` : ''}
-
-下一章节信息（需要生成的内容）：
-章节标题：${nextChapter.title}
-情节摘要：${nextChapter.summary}
-${nextChapter.aiPromptHints ? `写作提示：${nextChapter.aiPromptHints}` : ''}
-
-角色信息：
-${novel.characters.map(c => `${c.name}：${c.role}。性格-${c.personality}，背景-${c.background}，目标-${c.goals}`).join('\n') || '暂无角色信息'}
-
-世界观设定：
-${novel.worldSettings.map(s => `${s.title}（${s.category}）：${s.description}`).join('\n') || '暂无世界观设定'}
-
-要求：
-1. 与前文内容保持连贯性和一致性
-2. 遵循角色的性格设定和世界观规则
-3. 按照下一章节的情节摘要推进故事
-4. 保持高文学品质，采用沉浸式描述和引人入胜的对话
-5. 仅输出章节正文内容。`;
-      
-      addLog('info', '🔍 提示词(生成下一章节):');
-      addLog('info', '─'.repeat(60));
-      nextChapterPrompt.split('\n').slice(0, 20).forEach(line => {
-        addLog('info', `   ${line.trim()}`);
-      });
-      addLog('info', '   ...');
-      addLog('info', '─'.repeat(60));
-      
-      // 创建流式回调
-      const onChunk = (chunk: string, isComplete: boolean) => {
-        if (isComplete) {
-          addLog('success', '\n✅ 生成完成');
-        } else if (chunk) {
-          appendStreamChunk(chunk);
-        }
-      };
-      
-      const content = await writeNextChapterContent(novel, activeChapterIdx, activeVolumeIdx, onChunk);
-      if (!isMountedRef.current) return;
-      
-      if (content && content.trim()) {
-        // 更新下一章节的内容（本地状态）
-        const newVolumes = [...novel.volumes];
-        const nextChapter = newVolumes[activeVolumeIdx].chapters[nextChapterIndex];
-        nextChapter.content = content;
-        updateNovel({ volumes: newVolumes });
-        
-        // 立即保存到数据库
-        try {
-          const volume = novel.volumes[activeVolumeIdx];
-          const nextChapterObj = chapters[nextChapterIndex];
-          await chapterApi.update(volume.id, nextChapterObj.id, {
-            title: nextChapterObj.title,
-            summary: nextChapterObj.summary,
-            content: content,
-            aiPromptHints: nextChapterObj.aiPromptHints,
-          });
-          addLog('success', `✅ 下一章节内容已保存至数据库！`);
-        } catch (saveError: any) {
-          addLog('warning', `⚠️ 保存到数据库失败: ${saveError?.message || '未知错误'}，内容已更新到本地`);
-          console.error('保存下一章节内容失败:', saveError);
-        }
-        
-        // 提取下一章节的伏笔
-        try {
-          addLog('step', '🔧 提取下一章节的伏笔线索...');
-          const existingForeshadowings = novel.foreshadowings.map(f => ({ content: f.content }));
-          const extractedForeshadowings = await extractForeshadowingsFromChapter(
-            novel.title,
-            novel.genre,
-            nextChapter.title,
-            content,
-            existingForeshadowings
-          );
-          
-          if (extractedForeshadowings && extractedForeshadowings.length > 0) {
-            const newForeshadowings = extractedForeshadowings.map((f: any) => ({
-              content: f.content || '',
-              chapterId: nextChapter.id,
-              isResolved: 'false'
-            }));
-            
-            // 保存到后端
-            const savedForeshadowings = await foreshadowingApi.create(novel.id, newForeshadowings);
-            
-            // 更新本地状态
-            updateNovel({
-              foreshadowings: [...novel.foreshadowings, ...savedForeshadowings]
-            });
-            
-            addLog('success', `✅ 已提取 ${savedForeshadowings.length} 个伏笔`);
-            savedForeshadowings.forEach((f, idx) => {
-              addLog('info', `   ${idx + 1}. ${f.content.substring(0, 50)}${f.content.length > 50 ? '...' : ''}`);
-            });
-          } else {
-            addLog('info', 'ℹ️ 下一章节未发现新的伏笔线索');
-          }
-        } catch (err: any) {
-          addLog('warning', `⚠️ 提取伏笔失败: ${err?.message || '未知错误'}，但章节内容已保存`);
-        }
-        
-        // 自动切换到下一章节
-        setActiveChapterIdx(nextChapterIndex);
-        
-        addLog('success', `✅ 下一章节生成成功`);
-        addLog('info', `ℹ️ 内容长度: ${content.length} 字符`);
-        addLog('info', `⏭️ 已自动跳转到下一章节`);
-      } else {
-        addLog('error', '❌ 生成失败，返回的内容为空');
-        alert('生成下一章节失败，返回的内容为空，请重试。');
+      if (!taskResult.task_id) {
+        throw new Error('任务创建失败：未返回任务ID');
       }
+      
+      addLog('success', `✅ 任务已创建 (ID: ${taskResult.task_id})`);
+      addLog('info', '⏳ 正在后台生成，请等待...');
+      
+      // 轮询任务状态
+      const taskServiceModule = await import('../services/taskService');
+      const { startPolling } = taskServiceModule;
+      
+      await new Promise<void>((resolve, reject) => {
+        startPolling(taskResult.task_id, {
+          onProgress: (task) => {
+            const progress = task.progress || 0;
+            const message = task.progress_message || '处理中...';
+            addLog('info', `⏳ ${progress}% - ${message}`);
+          },
+          onComplete: async (task) => {
+            addLog('success', '✅ 下一章节生成完成！后端已自动保存并存储向量');
+            
+            // 解析任务结果
+            let resultData: any = {};
+            if (task.result) {
+              try {
+                resultData = JSON.parse(task.result);
+              } catch (e) {
+                console.warn('解析任务结果失败:', e);
+              }
+            }
+            
+            // 显示伏笔和钩子信息
+            if (resultData.foreshadowings && resultData.foreshadowings.length > 0) {
+              addLog('success', `✅ 已提取 ${resultData.foreshadowings.length} 个伏笔`);
+              resultData.foreshadowings.forEach((f: string, idx: number) => {
+                addLog('info', `   ${idx + 1}. ${f.substring(0, 50)}${f.length > 50 ? '...' : ''}`);
+              });
+            }
+            
+            if (resultData.next_chapter_hook) {
+              addLog('info', `💡 下一章钩子: ${resultData.next_chapter_hook.substring(0, 50)}${resultData.next_chapter_hook.length > 50 ? '...' : ''}`);
+            }
+            
+            addLog('info', '🔄 正在重新加载最新数据...');
+            
+            // 重新加载小说数据（后端已经保存）
+            if (loadNovels) {
+              await loadNovels();
+              addLog('success', '✅ 数据加载完成！');
+            }
+            
+            // 自动切换到下一章节
+            setActiveChapterIdx(nextChapterIndex);
+            addLog('info', `⏭️ 已自动跳转到下一章节`);
+            
+            resolve();
+          },
+          onError: (task) => {
+            addLog('error', `❌ 任务失败: ${task.error_message || '未知错误'}`);
+            reject(new Error(task.error_message || '任务执行失败'));
+          },
+        });
+      });
+      
     } catch (err: any) {
       if (!isMountedRef.current) return;
       
       addLog('error', `❌ 生成失败: ${err?.message || '未知错误'}`);
-      const errorMessage = err?.message || err?.toString() || '未知错误';
-      alert(`生成下一章节失败，${errorMessage}\n\n请检查：\n1. API Key 是否正确配置\n2. 网络连接是否正常\n3. 代理设置是否正确`);
+      alert(`生成下一章节失败：${err?.message || '未知错误'}`);
     } finally {
       if (isMountedRef.current) {
         setIsWriting(false);

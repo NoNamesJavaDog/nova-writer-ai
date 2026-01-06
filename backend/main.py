@@ -2262,10 +2262,12 @@ async def write_all_chapters_in_volume(
                 if not from_start and (chapter.content or "").strip():
                     continue
 
-                progress = int((written + failed) / total_to_write * 100)
+                # 更新进度（在开始生成前）
+                current_index = written + failed
+                progress = int((current_index) / total_to_write * 100) if total_to_write > 0 else 0
                 if task_obj:
                     task_obj.progress = progress
-                    task_obj.progress_message = f"生成第 {idx + 1} 章：{chapter.title}"
+                    task_obj.progress_message = f"正在生成第 {idx + 1} 章：{chapter.title}（已完成 {written}，失败 {failed}）"
                     task_db.commit()
 
                 try:
@@ -2396,8 +2398,23 @@ async def write_all_chapters_in_volume(
                     time_module.sleep(0.5)
 
                     written += 1
+                    
+                    # 更新进度（在章节生成完成后）
+                    progress = int((written + failed) / total_to_write * 100) if total_to_write > 0 else 0
+                    if task_obj:
+                        task_obj.progress = progress
+                        task_obj.progress_message = f"已完成第 {idx + 1} 章：{chapter.title}（成功 {written}，失败 {failed}）"
+                        task_db.commit()
                 except Exception as e:
                     failed += 1
+                    
+                    # 更新进度（在章节生成失败后）
+                    progress = int((written + failed) / total_to_write * 100) if total_to_write > 0 else 0
+                    if task_obj:
+                        task_obj.progress = progress
+                        task_obj.progress_message = f"第 {idx + 1} 章生成失败：{chapter.title}（成功 {written}，失败 {failed}）"
+                        task_db.commit()
+                    
                     logger.error(f"生成章节失败: chapter_id={chapter.id}, error={str(e)}", exc_info=True)
                     task_db.rollback()
                     continue
@@ -2455,11 +2472,257 @@ async def write_all_chapters_in_volume(
 
     executor = get_task_executor()
     executor.submit(execute_write_volume)
-
+    
     return {
         "task_id": task.id,
         "status": "pending",
         "message": "任务已创建，正在后台生成本卷章节内容"
+    }
+
+@app.post("/api/novels/{novel_id}/volumes/{volume_id}/chapters/{chapter_id}/write-next-chapter")
+async def write_next_chapter(
+    novel_id: str,
+    volume_id: str,
+    chapter_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    生成下一章节内容（后端执行业务逻辑）
+    - 找到当前章节的下一章节
+    - 生成下一章内容（使用向量数据库智能上下文）
+    - 保存内容到数据库
+    - 存储向量
+    - 提取伏笔并保存
+    - 提取下一章钩子并保存
+    """
+    novel = db.query(Novel).filter(Novel.id == novel_id, Novel.user_id == current_user.id).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+
+    volume = db.query(Volume).filter(Volume.id == volume_id, Volume.novel_id == novel_id).first()
+    if not volume:
+        raise HTTPException(status_code=404, detail="卷不存在")
+
+    current_chapter = db.query(Chapter).filter(Chapter.id == chapter_id, Chapter.volume_id == volume_id).first()
+    if not current_chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
+
+    # 查找下一章节
+    next_chapter = db.query(Chapter).filter(
+        Chapter.volume_id == volume_id,
+        Chapter.chapter_order == current_chapter.chapter_order + 1
+    ).first()
+    
+    if not next_chapter:
+        raise HTTPException(status_code=400, detail="没有下一章节，请先在大纲页面生成章节列表")
+
+    # 创建任务
+    task = create_task(
+        db=db,
+        novel_id=novel_id,
+        user_id=current_user.id,
+        task_type="write_next_chapter",
+        task_data={
+            "volume_id": volume_id,
+            "current_chapter_id": chapter_id,
+            "next_chapter_id": next_chapter.id,
+            "next_chapter_title": next_chapter.title,
+        }
+    )
+
+    def execute_write_next_chapter():
+        task_db = SessionLocal()
+        try:
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "running"
+                task_obj.started_at = int(time.time() * 1000)
+                task_obj.progress = 0
+                task_obj.progress_message = f"开始生成下一章：{next_chapter.title}"
+                task_db.commit()
+
+            novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
+            volume_obj = task_db.query(Volume).filter(Volume.id == volume_id).first()
+            current_chapter_obj = task_db.query(Chapter).filter(Chapter.id == chapter_id).first()
+            next_chapter_obj = task_db.query(Chapter).filter(Chapter.id == next_chapter.id).first()
+            
+            if not novel_obj or not volume_obj or not current_chapter_obj or not next_chapter_obj:
+                raise Exception("小说、卷或章节不存在")
+
+            # 预取角色/世界观
+            characters = task_db.query(Character).filter(Character.novel_id == novel_id).all()
+            world_settings = task_db.query(WorldSetting).filter(WorldSetting.novel_id == novel_id).all()
+
+            # 获取上一章的钩子（如果有）
+            previous_chapter_hook = ""
+            if current_chapter_obj.ai_prompt_hints and "【下一章钩子】" in current_chapter_obj.ai_prompt_hints:
+                hook_part = current_chapter_obj.ai_prompt_hints.split("【下一章钩子】")
+                if len(hook_part) > 1:
+                    previous_chapter_hook = hook_part[-1].strip()
+                    logger.info(f"💡 获取到上一章钩子：{previous_chapter_hook[:50]}...")
+
+            # 更新进度
+            if task_obj:
+                task_obj.progress = 10
+                task_obj.progress_message = f"正在生成下一章：{next_chapter_obj.title}"
+                task_db.commit()
+
+            # 生成章节内容
+            content = write_chapter_content_impl(
+                novel_title=novel_obj.title,
+                genre=novel_obj.genre,
+                synopsis=novel_obj.synopsis or "",
+                chapter_title=next_chapter_obj.title,
+                chapter_summary=next_chapter_obj.summary or "",
+                chapter_prompt_hints=next_chapter_obj.ai_prompt_hints or "",
+                characters=[{"name": c.name, "personality": c.personality} for c in characters],
+                world_settings=[{"title": w.title, "description": w.description} for w in world_settings],
+                previous_chapters_context=None,  # 使用向量数据库智能检索
+                novel_id=novel_id,
+                current_chapter_id=next_chapter_obj.id,
+                db_session=task_db,
+                previous_chapter_hook=previous_chapter_hook
+            )
+
+            next_chapter_obj.content = content
+            next_chapter_obj.updated_at = int(time.time() * 1000)
+            task_db.commit()
+
+            # 更新进度
+            if task_obj:
+                task_obj.progress = 50
+                task_obj.progress_message = f"章节内容生成完成，正在存储向量..."
+                task_db.commit()
+
+            # 存储向量
+            embedding_service = EmbeddingService()
+            try:
+                embedding_service.store_chapter_embedding(
+                    db=task_db,
+                    chapter_id=next_chapter_obj.id,
+                    novel_id=novel_id,
+                    content=content
+                )
+                logger.info(f"✅ 章节 {next_chapter_obj.title} 向量存储成功")
+            except Exception as e:
+                logger.warning(f"⚠️ 章节向量存储失败（继续）: {str(e)}")
+
+            # 短暂延迟，确保向量索引建立完成
+            import time as time_module
+            time_module.sleep(0.5)
+
+            # 更新进度
+            if task_obj:
+                task_obj.progress = 70
+                task_obj.progress_message = f"正在提取伏笔和钩子..."
+                task_db.commit()
+
+            # 提取并保存伏笔
+            extracted_foreshadowings = []
+            try:
+                existing_foreshadowings = task_db.query(Foreshadowing).filter(
+                    Foreshadowing.novel_id == novel_id
+                ).all()
+                existing_foreshadowings_list = [{"content": f.content} for f in existing_foreshadowings]
+                
+                foreshadowings_data = extract_foreshadowings_from_chapter(
+                    title=novel_obj.title,
+                    genre=novel_obj.genre,
+                    chapter_title=next_chapter_obj.title,
+                    chapter_content=content,
+                    existing_foreshadowings=existing_foreshadowings_list
+                )
+                
+                if foreshadowings_data:
+                    for foreshadowing_data in foreshadowings_data:
+                        if foreshadowing_data.get("content"):
+                            foreshadowing = Foreshadowing(
+                                id=generate_uuid(),
+                                novel_id=novel_id,
+                                chapter_id=next_chapter_obj.id,
+                                content=foreshadowing_data["content"],
+                                is_resolved="false",
+                                foreshadowing_order=len(existing_foreshadowings) + len(extracted_foreshadowings),
+                                created_at=int(time.time() * 1000),
+                                updated_at=int(time.time() * 1000)
+                            )
+                            task_db.add(foreshadowing)
+                            extracted_foreshadowings.append(foreshadowing_data["content"])
+                    task_db.commit()
+                    logger.info(f"✅ 章节 {next_chapter_obj.title} 提取到 {len(extracted_foreshadowings)} 个伏笔")
+            except Exception as e:
+                logger.warning(f"⚠️ 提取伏笔失败（继续）: {str(e)}")
+
+            # 提取并保存下一章钩子
+            next_chapter_hook = ""
+            try:
+                # 查找再下一章信息（如果有）
+                next_next_chapter = task_db.query(Chapter).filter(
+                    Chapter.volume_id == volume_id,
+                    Chapter.chapter_order == next_chapter_obj.chapter_order + 1
+                ).first()
+                
+                next_next_chapter_title = next_next_chapter.title if next_next_chapter else None
+                next_next_chapter_summary = next_next_chapter.summary if next_next_chapter else None
+                
+                next_chapter_hook = extract_next_chapter_hook(
+                    title=novel_obj.title,
+                    genre=novel_obj.genre,
+                    chapter_title=next_chapter_obj.title,
+                    chapter_content=content,
+                    next_chapter_title=next_next_chapter_title,
+                    next_chapter_summary=next_next_chapter_summary
+                )
+                
+                if next_chapter_hook:
+                    # 将钩子保存到章节的ai_prompt_hints字段
+                    original_hints = next_chapter_obj.ai_prompt_hints or ""
+                    if original_hints:
+                        # 移除旧的钩子（如果有）
+                        original_hints = original_hints.replace("【下一章钩子】", "").strip()
+                        next_chapter_obj.ai_prompt_hints = f"【下一章钩子】{next_chapter_hook}\n\n{original_hints}".strip()
+                    else:
+                        next_chapter_obj.ai_prompt_hints = f"【下一章钩子】{next_chapter_hook}"
+                    task_db.add(next_chapter_obj)
+                    task_db.commit()
+                    logger.info(f"✅ 章节 {next_chapter_obj.title} 提取到下一章钩子：{next_chapter_hook[:50]}...")
+            except Exception as e:
+                logger.warning(f"⚠️ 提取下一章钩子失败（继续）: {str(e)}")
+
+            # 更新任务完成状态
+            if task_obj:
+                task_obj.status = "completed"
+                task_obj.progress = 100
+                task_obj.progress_message = f"下一章生成完成：{next_chapter_obj.title}"
+                task_obj.result = json.dumps({
+                    "next_chapter_id": next_chapter_obj.id,
+                    "next_chapter_title": next_chapter_obj.title,
+                    "foreshadowings": extracted_foreshadowings,
+                    "next_chapter_hook": next_chapter_hook
+                })
+                task_obj.completed_at = int(time.time() * 1000)
+                task_db.commit()
+
+        except Exception as e:
+            task_db.rollback()
+            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
+            if task_obj:
+                task_obj.status = "failed"
+                task_obj.error_message = str(e)
+                task_obj.completed_at = int(time.time() * 1000)
+                task_db.commit()
+            logger.error(f"生成下一章失败: {str(e)}", exc_info=True)
+        finally:
+            task_db.close()
+
+    executor = get_task_executor()
+    executor.submit(execute_write_next_chapter)
+    
+    return {
+        "task_id": task.id,
+        "status": "pending",
+        "message": "任务已创建，正在后台执行"
     }
 
 @app.post("/api/ai/generate-characters")

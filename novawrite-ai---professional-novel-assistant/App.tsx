@@ -395,6 +395,7 @@ const App: React.FC = () => {
             activeChapterIdx={activeChapterIdx}
             setActiveChapterIdx={setActiveChapterIdx}
             setActiveVolumeIdx={setActiveVolumeIdx}
+            loadNovels={loadNovels}
           />
         );
       case 'characters':
