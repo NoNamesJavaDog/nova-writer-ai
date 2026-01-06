@@ -3710,8 +3710,8 @@ async def generate_all_chapters_task(
                     final_chapter_count = chapter_count
                     if not final_chapter_count and volume_obj.outline:
                         import re
-                        # 支持多种格式：【章节规划】：10章、【章节规划】10章、【章节规划】: 10章、章节规划：10章等
-                        chapter_match = re.search(r'[【]?章节规划[】]?[：:\s]*(\d+)\s*章', volume_obj.outline)
+                        # 支持多种格式，包括 Markdown 加粗：**【章节规划】：** 75章、【章节规划】：10章、章节规划：10章等
+                        chapter_match = re.search(r'\*?\*?[【]?章节规划[】]?[：:\s]*\*?\*?\s*(\d+)\s*章', volume_obj.outline)
                         if chapter_match:
                             extracted_count = int(chapter_match.group(1))
                             final_chapter_count = extracted_count
@@ -3971,8 +3971,8 @@ async def generate_chapters_task(
             final_chapter_count = chapter_count
             if not final_chapter_count and volume_obj.outline:
                 import re
-                # 支持多种格式：【章节规划】：10章、【章节规划】10章、【章节规划】: 10章、章节规划：10章等
-                chapter_match = re.search(r'[【]?章节规划[】]?[：:\s]*(\d+)\s*章', volume_obj.outline)
+                # 支持多种格式，包括 Markdown 加粗：**【章节规划】：** 75章、【章节规划】：10章、章节规划：10章等
+                chapter_match = re.search(r'\*?\*?[【]?章节规划[】]?[：:\s]*\*?\*?\s*(\d+)\s*章', volume_obj.outline)
                 if chapter_match:
                     extracted_count = int(chapter_match.group(1))
                     final_chapter_count = extracted_count
