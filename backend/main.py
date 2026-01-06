@@ -2517,6 +2517,11 @@ async def write_next_chapter(
     if not next_chapter:
         raise HTTPException(status_code=400, detail="没有下一章节，请先在大纲页面生成章节列表")
 
+    # 保存必要的数据，避免在后台任务中使用已分离的对象
+    next_chapter_id = next_chapter.id
+    next_chapter_title = next_chapter.title
+    current_chapter_order = current_chapter.chapter_order
+
     # 创建任务
     task = create_task(
         db=db,
@@ -2526,8 +2531,8 @@ async def write_next_chapter(
         task_data={
             "volume_id": volume_id,
             "current_chapter_id": chapter_id,
-            "next_chapter_id": next_chapter.id,
-            "next_chapter_title": next_chapter.title,
+            "next_chapter_id": next_chapter_id,
+            "next_chapter_title": next_chapter_title,
         }
     )
 
@@ -2539,13 +2544,13 @@ async def write_next_chapter(
                 task_obj.status = "running"
                 task_obj.started_at = int(time.time() * 1000)
                 task_obj.progress = 0
-                task_obj.progress_message = f"开始生成下一章：{next_chapter.title}"
+                task_obj.progress_message = f"开始生成下一章：{next_chapter_title}"
                 task_db.commit()
 
             novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
             volume_obj = task_db.query(Volume).filter(Volume.id == volume_id).first()
             current_chapter_obj = task_db.query(Chapter).filter(Chapter.id == chapter_id).first()
-            next_chapter_obj = task_db.query(Chapter).filter(Chapter.id == next_chapter.id).first()
+            next_chapter_obj = task_db.query(Chapter).filter(Chapter.id == next_chapter_id).first()
             
             if not novel_obj or not volume_obj or not current_chapter_obj or not next_chapter_obj:
                 raise Exception("小说、卷或章节不存在")
