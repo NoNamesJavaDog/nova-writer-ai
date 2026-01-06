@@ -2586,8 +2586,7 @@ async def write_next_chapter(
                 previous_chapters_context=None,  # 使用向量数据库智能检索
                 novel_id=novel_id,
                 current_chapter_id=next_chapter_obj.id,
-                db_session=task_db,
-                previous_chapter_hook=previous_chapter_hook
+                db_session=task_db
             )
 
             next_chapter_obj.content = content
