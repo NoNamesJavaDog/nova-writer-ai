@@ -574,16 +574,9 @@ const EditorView: React.FC<EditorViewProps> = ({
           },
           onComplete: async (task) => {
             addLog('success', '✅ 下一章节生成完成！后端已自动保存并存储向量');
-            
-            // 解析任务结果
-            let resultData: any = {};
-            if (task.result) {
-              try {
-                resultData = JSON.parse(task.result);
-              } catch (e) {
-                console.warn('解析任务结果失败:', e);
-              }
-            }
+
+            // 后端已经将 result 解析为对象，直接使用即可
+            const resultData: any = task.result || {};
             
             // 显示伏笔和钩子信息
             if (resultData.foreshadowings && resultData.foreshadowings.length > 0) {
