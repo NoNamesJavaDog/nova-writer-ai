@@ -26,7 +26,7 @@ PORT = int(os.getenv("PORT", "8000"))
 # 允许的前端地址
 CORS_ORIGINS_STR = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000"
+    "http://localhost:3000,http://127.0.0.1:3000,https://66.154.108.62,http://66.154.108.62"
 )
 CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(",") if origin.strip()]
 
