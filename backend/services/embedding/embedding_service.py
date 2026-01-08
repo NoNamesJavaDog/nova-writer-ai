@@ -2,6 +2,7 @@
 向量嵌入服务
 负责生成文本向量、存储、检索
 """
+import os
 import uuid
 import time
 import re
@@ -10,7 +11,7 @@ from typing import List, Optional, Dict
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from google import genai
-from config import GEMINI_API_KEY
+from core.config import GEMINI_API_KEY, GEMINI_PROXY
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -22,6 +23,12 @@ RETRY_DELAY = 1  # 秒
 # 初始化 Gemini 客户端
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY 未配置，请在 .env 文件中设置")
+
+# 配置代理（如果设置了 GEMINI_PROXY）
+if GEMINI_PROXY:
+    os.environ['HTTP_PROXY'] = GEMINI_PROXY
+    os.environ['HTTPS_PROXY'] = GEMINI_PROXY
+    logger.info(f"✅ Gemini API 代理已配置: {GEMINI_PROXY}")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 

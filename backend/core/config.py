@@ -32,6 +32,7 @@ CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(",") if orig
 
 # ==================== Gemini API 配置 ====================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_PROXY = os.getenv("GEMINI_PROXY", "")  # 代理服务器地址，格式: http://host:port
 
 # ==================== 环境检测 ====================
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
