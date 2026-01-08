@@ -13,7 +13,7 @@ from .models import (
 )
 
 # Base 从 core.database 导入
-from ..core.database import Base
+from core.database import Base
 
 __all__ = [
     'Base',
