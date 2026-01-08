@@ -584,8 +584,8 @@ def write_chapter_content_stream(
         # 新增：使用向量检索获取智能上下文（如果提供了 novel_id 和 db_session）
         if novel_id and db_session:
             try:
-                from ..analysis.consistency_checker import ConsistencyChecker
-                from ..analysis.content_similarity_checker import ContentSimilarityChecker
+                from services.analysis.consistency_checker import ConsistencyChecker
+                from services.analysis.content_similarity_checker import ContentSimilarityChecker
                 
                 # 可选：在生成前进行相似度检查（仅警告，不阻止生成）
                 try:
@@ -768,8 +768,8 @@ def write_chapter_content(
         # 使用向量检索获取智能上下文（如果提供了 novel_id 和 db_session）
         if novel_id and db_session:
             try:
-                from ..analysis.consistency_checker import ConsistencyChecker
-                from ..analysis.content_similarity_checker import ContentSimilarityChecker
+                from services.analysis.consistency_checker import ConsistencyChecker
+                from services.analysis.content_similarity_checker import ContentSimilarityChecker
                 
                 # 可选：在生成前进行相似度检查（仅警告，不阻止生成）
                 try:
