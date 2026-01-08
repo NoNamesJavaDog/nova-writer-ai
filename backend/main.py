@@ -64,11 +64,11 @@ from gemini_service import (
     generate_foreshadowings_from_outline, modify_outline_by_dialogue
 )
 from task_service import create_task, get_task_executor, ProgressCallback
-from services.vector_helper import (
+from services.embedding import (
     store_chapter_embedding_async, store_character_embedding,
-    store_world_setting_embedding
+    store_world_setting_embedding,
+    EmbeddingService
 )
-from services.embedding_service import EmbeddingService
 from chapter_writing_service import (
     write_and_save_chapter,
     prepare_chapter_writing_context,
@@ -1285,7 +1285,7 @@ async def store_chapter_embedding_sync(
             }
         
         # 同步存储向量（直接调用，不使用后台任务）
-        from services.embedding_service import EmbeddingService
+        from services.embedding import EmbeddingService
         service = EmbeddingService()
         
         service.store_chapter_embedding(
@@ -2259,7 +2259,6 @@ async def write_all_chapters_in_volume(
             total_to_write = len(need_write)
             written = 0
             failed = 0
-            embedding_service = EmbeddingService()
 
             for idx, chapter in enumerate(chapters):
                 # 如果是从第一章开始，跳过检查；否则只处理未写作的章节

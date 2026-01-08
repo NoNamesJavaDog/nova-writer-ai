@@ -1,6 +1,6 @@
 """后端启动脚本"""
 import uvicorn
-from config import HOST, PORT, DEBUG
+from core.config import HOST, PORT, DEBUG
 
 if __name__ == "__main__":
     uvicorn.run(
