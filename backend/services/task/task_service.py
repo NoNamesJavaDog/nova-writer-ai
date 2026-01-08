@@ -3,8 +3,8 @@ import time
 import json
 from typing import Optional, Dict, Any, Callable
 from sqlalchemy.orm import Session
-from models import Task
-from core.database import SessionLocal
+from ...models import Task
+from ...core.database import SessionLocal
 
 # 全局任务执行器
 _task_executor = None

@@ -1,7 +1,7 @@
 """数据库模型"""
 from sqlalchemy import Column, String, Text, Integer, BigInteger, ForeignKey, CheckConstraint
 from sqlalchemy.orm import relationship
-from core.database import Base
+from ..core.database import Base
 
 class User(Base):
     __tablename__ = "users"
