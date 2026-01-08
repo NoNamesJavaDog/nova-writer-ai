@@ -32,7 +32,9 @@ CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(",") if orig
 
 # ==================== Gemini API 配置 ====================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_PROXY = os.getenv("GEMINI_PROXY", "")  # 代理服务器地址，格式: http://host:port
+# WARP 代理地址（Cloudflare WARP HTTP 代理默认端口是 40000）
+# 格式: http://127.0.0.1:40000
+GEMINI_PROXY = os.getenv("GEMINI_PROXY", "http://127.0.0.1:40000")
 
 # ==================== 环境检测 ====================
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
