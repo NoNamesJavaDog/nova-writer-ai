@@ -11,10 +11,22 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY 未配置，请在 .env 文件中设置")
 
 # 配置代理（如果设置了 GEMINI_PROXY）
+# Google genai 客户端使用 httpx，会读取 HTTP_PROXY 和 HTTPS_PROXY 环境变量
 if GEMINI_PROXY:
-    os.environ['HTTP_PROXY'] = GEMINI_PROXY
-    os.environ['HTTPS_PROXY'] = GEMINI_PROXY
-    logging.info(f"✅ Gemini API 代理已配置: {GEMINI_PROXY}")
+    # 确保代理地址格式正确（http:// 或 https://）
+    proxy_url = GEMINI_PROXY.strip()
+    if not proxy_url.startswith(('http://', 'https://', 'socks5://')):
+        proxy_url = f"http://{proxy_url}"
+    
+    os.environ['HTTP_PROXY'] = proxy_url
+    os.environ['HTTPS_PROXY'] = proxy_url
+    # httpx 也支持 ALL_PROXY
+    os.environ['ALL_PROXY'] = proxy_url
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"✅ Gemini API 代理已配置: {proxy_url}")
+    logger.info(f"   环境变量 HTTP_PROXY={os.environ.get('HTTP_PROXY')}")
+    logger.info(f"   环境变量 HTTPS_PROXY={os.environ.get('HTTPS_PROXY')}")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
