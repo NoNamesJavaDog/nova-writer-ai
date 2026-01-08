@@ -15,9 +15,9 @@ import uuid
 import logging
 import threading
 
-from config import CORS_ORIGINS, DEBUG
-from database import get_db, SessionLocal
-from auth import (
+from core.config import CORS_ORIGINS, DEBUG
+from core.database import get_db, SessionLocal
+from core.security import (
     get_current_user, create_access_token, create_refresh_token,
     verify_refresh_token, get_password_hash, verify_password,
     get_user_by_username_or_email, generate_uuid
@@ -55,21 +55,21 @@ from schemas import (
     TaskResponse
 )
 from pydantic import BaseModel
-from captcha import generate_captcha, verify_captcha, check_login_status
-from gemini_service import (
+from core.security import generate_captcha, verify_captcha, check_login_status
+from services.ai.gemini_service import (
     generate_full_outline, generate_volume_outline_stream, generate_volume_outline as generate_volume_outline_impl,
     generate_chapter_outline as generate_chapter_outline_impl, write_chapter_content_stream,
     write_chapter_content as write_chapter_content_impl,
     generate_characters, generate_world_settings, generate_timeline_events,
     generate_foreshadowings_from_outline, modify_outline_by_dialogue
 )
-from task_service import create_task, get_task_executor, ProgressCallback
-from services.embedding import (
+from services.task.task_service import create_task, get_task_executor, ProgressCallback
+from services.embedding.vector_helper import (
     store_chapter_embedding_async, store_character_embedding,
-    store_world_setting_embedding,
-    EmbeddingService
+    store_world_setting_embedding
 )
-from chapter_writing_service import (
+from services.embedding.embedding_service import EmbeddingService
+from services.ai.chapter_writing_service import (
     write_and_save_chapter,
     prepare_chapter_writing_context,
     get_forced_previous_chapter_context
@@ -257,7 +257,7 @@ async def login(login_data: UserLogin, request: Request, db: Session = Depends(g
     # 验证密码
     if not verify_password(login_data.password, user.password_hash):
         # 更新失败计数
-        from auth_helper import handle_login_failure
+        from core.security import handle_login_failure
         handle_login_failure(db, user, login_data.captcha_id, login_data.captcha_code)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     
@@ -1285,7 +1285,7 @@ async def store_chapter_embedding_sync(
             }
         
         # 同步存储向量（直接调用，不使用后台任务）
-        from services.embedding import EmbeddingService
+        from services.embedding.embedding_service import EmbeddingService
         service = EmbeddingService()
         
         service.store_chapter_embedding(
