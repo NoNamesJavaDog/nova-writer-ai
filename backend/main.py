@@ -2113,9 +2113,6 @@ async def generate_chapter_outline(
     )
     return convert_to_camel_case(chapters)
 
-class WriteChapterRequestWithNovelId(WriteChapterRequest):
-    novel_id: Optional[str] = None  # 可选的小说ID，如果提供则优先使用
-
 @app.post("/api/ai/write-chapter")
 async def write_chapter(
     request: WriteChapterRequestWithNovelId,

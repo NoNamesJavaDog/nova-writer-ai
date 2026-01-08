@@ -302,6 +302,9 @@ class WriteChapterRequest(BaseModel):
     synopsis: str
     chapter_title: str
     chapter_summary: str
+
+class WriteChapterRequestWithNovelId(WriteChapterRequest):
+    novel_id: Optional[str] = None  # 可选的小说ID，如果提供则优先使用
     chapter_prompt_hints: str
     characters: Optional[List[dict]] = None
     world_settings: Optional[List[dict]] = None
