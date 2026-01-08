@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Optional, AsyncGenerator
 from google import genai
-from ...core.config import GEMINI_API_KEY
+from core.config import GEMINI_API_KEY
 
 # 初始化 Gemini 客户端
 if not GEMINI_API_KEY:
