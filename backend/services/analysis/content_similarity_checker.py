@@ -5,7 +5,7 @@
 import logging
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
-from ..embedding.embedding_service import EmbeddingService
+from services.embedding.embedding_service import EmbeddingService
 
 # 配置日志
 logger = logging.getLogger(__name__)

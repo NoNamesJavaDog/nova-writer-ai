@@ -6,14 +6,14 @@ import logging
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 
-from ...models import Novel, Volume, Chapter, Character, WorldSetting, Foreshadowing
+from models import Novel, Volume, Chapter, Character, WorldSetting, Foreshadowing
 from .gemini_service import (
     write_chapter_content as write_chapter_content_impl,
     extract_foreshadowings_from_chapter,
     extract_next_chapter_hook
 )
-from ..embedding.embedding_service import EmbeddingService
-from ...core.security import generate_uuid
+from services.embedding.embedding_service import EmbeddingService
+from core.security import generate_uuid
 
 logger = logging.getLogger(__name__)
 
