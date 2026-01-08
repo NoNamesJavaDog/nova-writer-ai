@@ -48,6 +48,7 @@ from schemas import (
     # AI 相关
     GenerateOutlineRequest, GenerateVolumeOutlineRequest,
     GenerateChapterOutlineRequest, WriteChapterRequest,
+    WriteChapterRequestWithNovelId,
     GenerateCharactersRequest, GenerateWorldSettingsRequest,
     GenerateTimelineEventsRequest, ModifyOutlineByDialogueRequest,
     ModifyOutlineByDialogueResponse,
