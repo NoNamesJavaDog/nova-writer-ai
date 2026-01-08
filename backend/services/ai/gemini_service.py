@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Optional, AsyncGenerator
 from google import genai
-from core.config import GEMINI_API_KEY
+from ...core.config import GEMINI_API_KEY
 
 # 初始化 Gemini 客户端
 if not GEMINI_API_KEY:
@@ -191,7 +191,12 @@ def generate_full_outline(
         
         return result
     except Exception as e:
-        raise Exception(f"生成大纲失败: {str(e)}")
+        # 检查是否是地理位置限制错误
+        error_msg = str(e)
+        if "location is not supported" in error_msg or "FAILED_PRECONDITION" in error_msg:
+            friendly_msg = "抱歉，服务器所在地区暂不支持 Gemini API 服务。请联系管理员检查服务器配置，或考虑使用代理服务器。"
+            raise Exception(f"生成大纲失败: {friendly_msg}")
+        raise Exception(f"生成大纲失败: {error_msg}")
 
 
 def generate_volume_outline_stream(
@@ -258,10 +263,18 @@ def generate_volume_outline_stream(
         yield f"data: {json.dumps({'done': True})}\n\n"
                 
     except Exception as e:
+        # 检查是否是地理位置限制错误
+        error_msg = str(e)
+        if "location is not supported" in error_msg or "FAILED_PRECONDITION" in error_msg:
+            friendly_msg = "抱歉，服务器所在地区暂不支持 Gemini API 服务。请联系管理员检查服务器配置，或考虑使用代理服务器。"
+            error_data = json.dumps({"error": friendly_msg})
+            yield f"data: {error_data}\n\n"
+            raise Exception(f"生成卷大纲失败: {friendly_msg}")
+        
         # 发送错误信息
-        error_data = json.dumps({"error": str(e)})
+        error_data = json.dumps({"error": error_msg})
         yield f"data: {error_data}\n\n"
-        raise Exception(f"生成卷大纲失败: {str(e)}")
+        raise Exception(f"生成卷大纲失败: {error_msg}")
 
 
 def generate_volume_outline(
@@ -334,7 +347,12 @@ def generate_volume_outline(
         return response.text
                 
     except Exception as e:
-        raise Exception(f"生成卷大纲失败: {str(e)}")
+        # 检查是否是地理位置限制错误
+        error_msg = str(e)
+        if "location is not supported" in error_msg or "FAILED_PRECONDITION" in error_msg:
+            friendly_msg = "抱歉，服务器所在地区暂不支持 Gemini API 服务。请联系管理员检查服务器配置，或考虑使用代理服务器。"
+            raise Exception(f"生成卷大纲失败: {friendly_msg}")
+        raise Exception(f"生成卷大纲失败: {error_msg}")
 
 
 def generate_chapter_outline(
@@ -566,8 +584,8 @@ def write_chapter_content_stream(
         # 新增：使用向量检索获取智能上下文（如果提供了 novel_id 和 db_session）
         if novel_id and db_session:
             try:
-                from services.analysis.consistency_checker import ConsistencyChecker
-                from services.analysis.content_similarity_checker import ContentSimilarityChecker
+                from ..analysis.consistency_checker import ConsistencyChecker
+                from ..analysis.content_similarity_checker import ContentSimilarityChecker
                 
                 # 可选：在生成前进行相似度检查（仅警告，不阻止生成）
                 try:
@@ -709,10 +727,18 @@ def write_chapter_content_stream(
         yield f"data: {json.dumps({'done': True})}\n\n"
                 
     except Exception as e:
+        # 检查是否是地理位置限制错误
+        error_msg = str(e)
+        if "location is not supported" in error_msg or "FAILED_PRECONDITION" in error_msg:
+            friendly_msg = "抱歉，服务器所在地区暂不支持 Gemini API 服务。请联系管理员检查服务器配置，或考虑使用代理服务器。"
+            error_data = json.dumps({"error": friendly_msg})
+            yield f"data: {error_data}\n\n"
+            raise Exception(f"生成章节内容失败: {friendly_msg}")
+        
         # 发送错误信息
-        error_data = json.dumps({"error": str(e)})
+        error_data = json.dumps({"error": error_msg})
         yield f"data: {error_data}\n\n"
-        raise Exception(f"生成章节内容失败: {str(e)}")
+        raise Exception(f"生成章节内容失败: {error_msg}")
 
 
 def write_chapter_content(
@@ -742,8 +768,8 @@ def write_chapter_content(
         # 使用向量检索获取智能上下文（如果提供了 novel_id 和 db_session）
         if novel_id and db_session:
             try:
-                from services.analysis.consistency_checker import ConsistencyChecker
-                from services.analysis.content_similarity_checker import ContentSimilarityChecker
+                from ..analysis.consistency_checker import ConsistencyChecker
+                from ..analysis.content_similarity_checker import ContentSimilarityChecker
                 
                 # 可选：在生成前进行相似度检查（仅警告，不阻止生成）
                 try:
@@ -892,7 +918,12 @@ def write_chapter_content(
         return response.text
                 
     except Exception as e:
-        raise Exception(f"生成章节内容失败: {str(e)}")
+        # 检查是否是地理位置限制错误
+        error_msg = str(e)
+        if "location is not supported" in error_msg or "FAILED_PRECONDITION" in error_msg:
+            friendly_msg = "抱歉，服务器所在地区暂不支持 Gemini API 服务。请联系管理员检查服务器配置，或考虑使用代理服务器。"
+            raise Exception(f"生成章节内容失败: {friendly_msg}")
+        raise Exception(f"生成章节内容失败: {error_msg}")
 
 
 def summarize_chapter_content(chapter_title: str, chapter_content: str, max_len: int = 400) -> str:
