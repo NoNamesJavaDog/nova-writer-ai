@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: nova-ai-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: novawrite_db_2024
+      POSTGRES_DB: novawrite_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # AI 微服务
+  ai-service:
+    build: ./nova-ai-service
+    container_name: nova-ai-service
+    ports:
+      - "8001:8001"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_PROXY=${GEMINI_PROXY:-http://127.0.0.1:40000}
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # 主应用后端
+  backend:
+    build: ./backend
+    container_name: nova-ai-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:novawrite_db_2024@postgres:5432/novawrite_ai
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_PROXY=${GEMINI_PROXY:-http://127.0.0.1:40000}
+      - AI_SERVICE_URL=http://ai-service:8001
+      - AI_SERVICE_PROVIDER=gemini
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-this-in-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nova-network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+
+networks:
+  nova-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

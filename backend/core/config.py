@@ -49,3 +49,8 @@ if ENVIRONMENT == "production":
             "\n可以使用以下命令生成: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
         )
 
+# ==================== AI 微服务配置 ====================
+AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8001")
+AI_SERVICE_TIMEOUT = int(os.getenv("AI_SERVICE_TIMEOUT", "300"))
+AI_SERVICE_PROVIDER = os.getenv("AI_SERVICE_PROVIDER", "gemini")
+
