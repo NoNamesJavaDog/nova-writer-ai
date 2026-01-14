@@ -337,7 +337,7 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
       addLog('error', '1. API Key 未配置或无效');
       addLog('error', '2. 网络连接问题');
       addLog('error', '3. 查看控制台获取详细信息');
-      addLog('error', `API Key 状态: ${process.env.API_KEY || process.env.GEMINI_API_KEY ? '已配置' : '未配置'}`);
+      addLog('error', `API Key 状态: ${import.meta.env.VITE_GEMINI_API_KEY ? '已配置' : '未配置'}`);
       
       // 构建详细的错误提示
       let detailedMessage = `生成大纲失败：${errorMessage}\n\n`;
@@ -351,7 +351,7 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
       detailedMessage += `   - 如果使用代理，确保代理软件（127.0.0.1:7899）正在运行\n`;
       detailedMessage += `   - 浏览器可能需要配置系统代理\n\n`;
       detailedMessage += `3. 查看控制台获取详细错误信息\n\n`;
-      detailedMessage += `当前 API Key 状态：${process.env.API_KEY || process.env.GEMINI_API_KEY ? '已配置' : '未配置'}`;
+      detailedMessage += `当前 API Key 状态：${import.meta.env.VITE_GEMINI_API_KEY ? '已配置' : '未配置'}`;
       
       alert(detailedMessage);
     } finally {

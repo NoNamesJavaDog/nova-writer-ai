@@ -1,6 +1,6 @@
 """API 响应模型"""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 
 
@@ -83,6 +83,13 @@ class CharacterInfo(BaseModel):
     background: Optional[str] = Field(None, description="背景故事")
     goals: Optional[str] = Field(None, description="目标和动机")
 
+    @field_validator("age", mode="before")
+    @classmethod
+    def coerce_age(cls, value):
+        if value is None:
+            return None
+        return str(value)
+
 
 class CharactersResponse(BaseModel):
     """角色列表响应"""
@@ -121,6 +128,19 @@ class ForeshadowingInfo(BaseModel):
 class ForeshadowingsResponse(BaseModel):
     """伏笔列表响应"""
     foreshadowings: List[ForeshadowingInfo] = Field(..., description="伏笔列表")
+
+
+class CharacterRelationInfo(BaseModel):
+    """角色关系信息"""
+    source_name: str = Field(..., description="源角色")
+    target_name: str = Field(..., description="目标角色")
+    relation_type: str = Field(..., description="关系类型")
+    description: Optional[str] = Field(None, description="关系描述")
+
+
+class CharacterRelationsResponse(BaseModel):
+    """角色关系列表响应"""
+    relations: List[CharacterRelationInfo] = Field(..., description="角色关系列表")
 
 
 # ==================== 内容提取响应 ====================

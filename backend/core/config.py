@@ -54,3 +54,9 @@ AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8001")
 AI_SERVICE_TIMEOUT = int(os.getenv("AI_SERVICE_TIMEOUT", "300"))
 AI_SERVICE_PROVIDER = os.getenv("AI_SERVICE_PROVIDER", "gemini")
 
+# ==================== Neo4j Graph Config ====================
+NEO4J_ENABLED = os.getenv("NEO4J_ENABLED", "false").lower() == "true"
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j")
+

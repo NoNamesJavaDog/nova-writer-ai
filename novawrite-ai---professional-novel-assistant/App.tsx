@@ -16,6 +16,8 @@ import CharacterView from './components/CharacterView';
 import WorldView from './components/WorldView';
 import TimelineView from './components/TimelineView';
 import ForeshadowingView from './components/ForeshadowingView';
+import GraphView from './components/GraphView';
+import AgentConsole from './components/AgentConsole';
 import NovelManager from './components/NovelManager';
 import Login from './components/Login';
 import UserSettings from './components/UserSettings';
@@ -406,6 +408,10 @@ const App: React.FC = () => {
         return <TimelineView novel={currentNovel} updateNovel={updateNovel} />;
       case 'foreshadowings':
         return <ForeshadowingView novel={currentNovel} updateNovel={updateNovel} />;
+      case 'graph':
+        return <GraphView novel={currentNovel} />;
+      case 'agents':
+        return <AgentConsole novel={currentNovel} />;
       default:
         return <Dashboard novel={currentNovel} updateNovel={updateNovel} onStartWriting={() => setActiveView('outline')} loadNovels={loadNovels} />;
     }

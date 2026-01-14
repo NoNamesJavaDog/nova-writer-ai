@@ -70,7 +70,7 @@ export interface Novel {
   foreshadowings: Foreshadowing[];
 }
 
-export type AppView = 'dashboard' | 'outline' | 'writing' | 'characters' | 'world' | 'timeline' | 'foreshadowings';
+export type AppView = 'dashboard' | 'outline' | 'writing' | 'characters' | 'world' | 'timeline' | 'foreshadowings' | 'graph' | 'agents';
 
 export interface AuthState {
   user: User | null;

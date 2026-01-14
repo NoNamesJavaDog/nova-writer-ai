@@ -1,11 +1,22 @@
 """Pydantic 数据模型"""
-from pydantic import BaseModel, EmailStr, field_validator, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, Field
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 import re
 
+def to_camel(string: str) -> str:
+    parts = string.split('_')
+    return parts[0] + ''.join(word.capitalize() for word in parts[1:])
+
+class CamelModel(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True
+    )
+
 # 用户相关
-class UserBase(BaseModel):
+class UserBase(CamelModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     
@@ -32,7 +43,7 @@ class UserCreate(UserBase):
             raise ValueError('密码必须包含至少一个数字')
         return v
 
-class UserLogin(BaseModel):
+class UserLogin(CamelModel):
     username_or_email: str
     password: str
     captcha_id: Optional[str] = None  # 验证码ID
@@ -43,20 +54,17 @@ class UserResponse(UserBase):
     created_at: int
     last_login_at: Optional[int] = None
     
-    class Config:
-        from_attributes = True
-
-class Token(BaseModel):
+class Token(CamelModel):
     access_token: str
     refresh_token: str
     token_type: str
     user: UserResponse
 
-class RefreshTokenRequest(BaseModel):
+class RefreshTokenRequest(CamelModel):
     refresh_token: str
 
 # 角色相关
-class CharacterBase(BaseModel):
+class CharacterBase(CamelModel):
     name: str
     age: Optional[str] = None
     role: Optional[str] = None
@@ -67,7 +75,7 @@ class CharacterBase(BaseModel):
 class CharacterCreate(CharacterBase):
     pass
 
-class CharacterUpdate(BaseModel):
+class CharacterUpdate(CamelModel):
     name: Optional[str] = None
     age: Optional[str] = None
     role: Optional[str] = None
@@ -82,11 +90,8 @@ class CharacterResponse(CharacterBase):
     created_at: int
     updated_at: int
     
-    class Config:
-        from_attributes = True
-
 # 世界观相关
-class WorldSettingBase(BaseModel):
+class WorldSettingBase(CamelModel):
     title: str
     description: str
     category: str
@@ -102,7 +107,7 @@ class WorldSettingBase(BaseModel):
 class WorldSettingCreate(WorldSettingBase):
     pass
 
-class WorldSettingUpdate(BaseModel):
+class WorldSettingUpdate(CamelModel):
     title: Optional[str] = None
     description: Optional[str] = None
     category: Optional[str] = None
@@ -114,11 +119,8 @@ class WorldSettingResponse(WorldSettingBase):
     created_at: int
     updated_at: int
     
-    class Config:
-        from_attributes = True
-
 # 时间线相关
-class TimelineEventBase(BaseModel):
+class TimelineEventBase(CamelModel):
     time: str
     event: str
     impact: Optional[str] = None
@@ -126,7 +128,7 @@ class TimelineEventBase(BaseModel):
 class TimelineEventCreate(TimelineEventBase):
     pass
 
-class TimelineEventUpdate(BaseModel):
+class TimelineEventUpdate(CamelModel):
     time: Optional[str] = None
     event: Optional[str] = None
     impact: Optional[str] = None
@@ -138,11 +140,8 @@ class TimelineEventResponse(TimelineEventBase):
     created_at: int
     updated_at: int
     
-    class Config:
-        from_attributes = True
-
 # 伏笔相关
-class ForeshadowingBase(BaseModel):
+class ForeshadowingBase(CamelModel):
     content: str
     chapter_id: Optional[str] = None  # 伏笔产生的章节ID，可为空（大纲阶段生成）
     resolved_chapter_id: Optional[str] = None  # 闭环章节ID
@@ -151,7 +150,7 @@ class ForeshadowingBase(BaseModel):
 class ForeshadowingCreate(ForeshadowingBase):
     pass
 
-class ForeshadowingUpdate(BaseModel):
+class ForeshadowingUpdate(CamelModel):
     content: Optional[str] = None
     chapter_id: Optional[str] = None
     resolved_chapter_id: Optional[str] = None
@@ -164,11 +163,8 @@ class ForeshadowingResponse(ForeshadowingBase):
     created_at: int
     updated_at: int
     
-    class Config:
-        from_attributes = True
-
 # 章节相关
-class ChapterBase(BaseModel):
+class ChapterBase(CamelModel):
     title: str
     summary: Optional[str] = None
     content: Optional[str] = None
@@ -177,7 +173,7 @@ class ChapterBase(BaseModel):
 class ChapterCreate(ChapterBase):
     pass
 
-class ChapterUpdate(BaseModel):
+class ChapterUpdate(CamelModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     content: Optional[str] = None
@@ -190,11 +186,8 @@ class ChapterResponse(ChapterBase):
     created_at: int
     updated_at: int
     
-    class Config:
-        from_attributes = True
-
 # 卷相关
-class VolumeBase(BaseModel):
+class VolumeBase(CamelModel):
     title: str
     summary: Optional[str] = None
     outline: Optional[str] = None
@@ -202,7 +195,7 @@ class VolumeBase(BaseModel):
 class VolumeCreate(VolumeBase):
     pass
 
-class VolumeUpdate(BaseModel):
+class VolumeUpdate(CamelModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     outline: Optional[str] = None
@@ -215,11 +208,8 @@ class VolumeResponse(VolumeBase):
     updated_at: int
     chapters: List[ChapterResponse] = []
     
-    class Config:
-        from_attributes = True
-
 # 小说相关
-class NovelBase(BaseModel):
+class NovelBase(CamelModel):
     title: str
     genre: str
     synopsis: Optional[str] = None
@@ -228,7 +218,7 @@ class NovelBase(BaseModel):
 class NovelCreate(NovelBase):
     pass
 
-class NovelUpdate(BaseModel):
+class NovelUpdate(CamelModel):
     title: Optional[str] = None
     genre: Optional[str] = None
     synopsis: Optional[str] = None
@@ -243,19 +233,17 @@ class NovelResponse(NovelBase):
     characters: List[CharacterResponse] = []
     world_settings: List[WorldSettingResponse] = []
     timeline: List[TimelineEventResponse] = []
+    foreshadowings: List[ForeshadowingResponse] = []
     
-    class Config:
-        from_attributes = True
-
 # 当前小说ID
-class CurrentNovelResponse(BaseModel):
+class CurrentNovelResponse(CamelModel):
     novel_id: Optional[str] = None
 
-class CurrentNovelUpdate(BaseModel):
+class CurrentNovelUpdate(CamelModel):
     novel_id: str
 
 # 批量更新相关
-class NovelFullUpdate(BaseModel):
+class NovelFullUpdate(CamelModel):
     """完整的小说更新（包括所有子项）"""
     title: Optional[str] = None
     genre: Optional[str] = None
@@ -267,17 +255,17 @@ class NovelFullUpdate(BaseModel):
     timeline: Optional[List[TimelineEventCreate]] = None
 
 # AI 相关
-class GenerateOutlineRequest(BaseModel):
+class GenerateOutlineRequest(CamelModel):
     title: str
     genre: str
     synopsis: str
     novel_id: Optional[str] = None  # 小说ID，用于关联任务
 
-class GenerateOutlineResponse(BaseModel):
+class GenerateOutlineResponse(CamelModel):
     outline: str
     volumes: Optional[List[dict]] = None
 
-class GenerateVolumeOutlineRequest(BaseModel):
+class GenerateVolumeOutlineRequest(CamelModel):
     novel_title: str
     full_outline: str
     volume_title: str
@@ -285,7 +273,7 @@ class GenerateVolumeOutlineRequest(BaseModel):
     characters: Optional[List[dict]] = None
     volume_index: int
 
-class GenerateChapterOutlineRequest(BaseModel):
+class GenerateChapterOutlineRequest(CamelModel):
     novel_title: str
     genre: str
     full_outline: str
@@ -296,7 +284,7 @@ class GenerateChapterOutlineRequest(BaseModel):
     volume_index: int
     chapter_count: Optional[int] = None
 
-class WriteChapterRequest(BaseModel):
+class WriteChapterRequest(CamelModel):
     novel_title: str
     genre: str
     synopsis: str
@@ -307,39 +295,39 @@ class WriteChapterRequest(BaseModel):
     world_settings: Optional[List[dict]] = None
     previous_chapters_context: Optional[str] = None  # 前文上下文，用于避免重复内容
 
-class GenerateCharactersRequest(BaseModel):
+class GenerateCharactersRequest(CamelModel):
     title: str
     genre: str
     synopsis: str
     outline: str
     novel_id: Optional[str] = None  # 小说ID，用于关联任务
 
-class GenerateWorldSettingsRequest(BaseModel):
+class GenerateWorldSettingsRequest(CamelModel):
     title: str
     genre: str
     synopsis: str
     outline: str
     novel_id: Optional[str] = None  # 小说ID，用于关联任务
 
-class GenerateTimelineEventsRequest(BaseModel):
+class GenerateTimelineEventsRequest(CamelModel):
     title: str
     genre: str
     synopsis: str
     outline: str
     novel_id: Optional[str] = None  # 小说ID，用于关联任务
 
-class ModifyOutlineByDialogueRequest(BaseModel):
+class ModifyOutlineByDialogueRequest(CamelModel):
     novel_id: str
     user_message: str
 
-class ModifyOutlineByDialogueResponse(BaseModel):
+class ModifyOutlineByDialogueResponse(CamelModel):
     task_id: str
     status: str
     message: str
 
 # ==================== 任务相关 ====================
 
-class TaskResponse(BaseModel):
+class TaskResponse(CamelModel):
     id: str
     novel_id: str
     task_type: str
@@ -352,7 +340,3 @@ class TaskResponse(BaseModel):
     updated_at: int
     started_at: Optional[int] = None
     completed_at: Optional[int] = None
-
-    class Config:
-        from_attributes = True
-

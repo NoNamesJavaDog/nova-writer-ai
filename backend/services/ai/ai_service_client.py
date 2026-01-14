@@ -22,7 +22,6 @@ class AIServiceClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.provider = provider
-        self.client = httpx.AsyncClient(timeout=self.timeout)
         logger.info(f"✅ AI 微服务客户端初始化: {self.base_url}, provider={self.provider}")
 
     def _get_headers(self) -> dict:
@@ -32,9 +31,26 @@ class AIServiceClient:
             "X-Provider": self.provider
         }
 
+    async def _post_json(self, path: str, payload: dict) -> dict:
+        client = httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.post(
+                f"{self.base_url}{path}",
+                json=payload,
+                headers=self._get_headers()
+            )
+            response.raise_for_status()
+            return response.json()
+        finally:
+            try:
+                await client.aclose()
+            except RuntimeError:
+                # Ignore uvloop transport-close errors during cleanup.
+                pass
+
     async def close(self):
         """关闭客户端"""
-        await self.client.aclose()
+        return
 
     # ==================== 大纲生成 ====================
 
@@ -60,17 +76,14 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成完整大纲: {title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/outline/generate-full",
-                json={
+            return await self._post_json(
+                "/api/v1/outline/generate-full",
+                {
                     "title": title,
                     "genre": genre,
                     "synopsis": synopsis
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            return response.json()
 
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP错误 {e.response.status_code}: {e.response.text}"
@@ -110,23 +123,24 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 流式生成卷大纲: {volume_title}")
 
-            async with self.client.stream(
-                "POST",
-                f"{self.base_url}/api/v1/outline/generate-volume-stream",
-                json={
-                    "novel_title": novel_title,
-                    "full_outline": full_outline,
-                    "volume_title": volume_title,
-                    "volume_summary": volume_summary,
-                    "characters": characters,
-                    "volume_index": volume_index
-                },
-                headers=self._get_headers()
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if line:
-                        yield line + "\n"
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/api/v1/outline/generate-volume-stream",
+                    json={
+                        "novel_title": novel_title,
+                        "full_outline": full_outline,
+                        "volume_title": volume_title,
+                        "volume_summary": volume_summary,
+                        "characters": characters,
+                        "volume_index": volume_index
+                    },
+                    headers=self._get_headers()
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if line:
+                            yield line + "\n"
 
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP错误 {e.response.status_code}: {e.response.text}"
@@ -171,20 +185,17 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成卷大纲: {volume_title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/outline/generate-volume",
-                json={
+            result = await self._post_json(
+                "/api/v1/outline/generate-volume",
+                {
                     "novel_title": novel_title,
                     "full_outline": full_outline,
                     "volume_title": volume_title,
                     "volume_summary": volume_summary,
                     "characters": characters,
                     "volume_index": volume_index
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("outline", "")
 
         except httpx.HTTPStatusError as e:
@@ -231,9 +242,9 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 修改大纲: {title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/outline/modify-by-dialogue",
-                json={
+            return await self._post_json(
+                "/api/v1/outline/modify-by-dialogue",
+                {
                     "title": title,
                     "genre": genre,
                     "synopsis": synopsis,
@@ -242,11 +253,8 @@ class AIServiceClient:
                     "world_settings": world_settings,
                     "timeline": timeline,
                     "user_message": user_message
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            return response.json()
 
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP错误 {e.response.status_code}: {e.response.text}"
@@ -298,9 +306,9 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成章节列表: {volume_title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/chapter/generate-outline",
-                json={
+            result = await self._post_json(
+                "/api/v1/chapter/generate-outline",
+                {
                     "novel_title": novel_title,
                     "genre": genre,
                     "full_outline": full_outline,
@@ -312,11 +320,8 @@ class AIServiceClient:
                     "chapter_count": chapter_count,
                     "previous_volumes_info": previous_volumes_info,
                     "future_volumes_info": future_volumes_info
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("chapters", [])
 
         except httpx.HTTPStatusError as e:
@@ -363,26 +368,27 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 流式生成章节内容: {chapter_title}")
 
-            async with self.client.stream(
-                "POST",
-                f"{self.base_url}/api/v1/chapter/write-content-stream",
-                json={
-                    "novel_title": novel_title,
-                    "genre": genre,
-                    "synopsis": synopsis,
-                    "chapter_title": chapter_title,
-                    "chapter_summary": chapter_summary,
-                    "chapter_prompt_hints": chapter_prompt_hints,
-                    "characters": characters,
-                    "world_settings": world_settings,
-                    "previous_chapters_context": previous_chapters_context
-                },
-                headers=self._get_headers()
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if line:
-                        yield line + "\n"
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/api/v1/chapter/write-content-stream",
+                    json={
+                        "novel_title": novel_title,
+                        "genre": genre,
+                        "synopsis": synopsis,
+                        "chapter_title": chapter_title,
+                        "chapter_summary": chapter_summary,
+                        "chapter_prompt_hints": chapter_prompt_hints,
+                        "characters": characters,
+                        "world_settings": world_settings,
+                        "previous_chapters_context": previous_chapters_context
+                    },
+                    headers=self._get_headers()
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if line:
+                            yield line + "\n"
 
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP错误 {e.response.status_code}: {e.response.text}"
@@ -433,9 +439,9 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成章节内容: {chapter_title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/chapter/write-content",
-                json={
+            result = await self._post_json(
+                "/api/v1/chapter/write-content",
+                {
                     "novel_title": novel_title,
                     "genre": genre,
                     "synopsis": synopsis,
@@ -445,11 +451,8 @@ class AIServiceClient:
                     "characters": characters,
                     "world_settings": world_settings,
                     "previous_chapters_context": previous_chapters_context
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("content", "")
 
         except httpx.HTTPStatusError as e:
@@ -484,17 +487,14 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成章节摘要: {chapter_title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/chapter/summarize",
-                json={
+            result = await self._post_json(
+                "/api/v1/chapter/summarize",
+                {
                     "chapter_title": chapter_title,
                     "chapter_content": chapter_content,
                     "max_len": max_len
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("summary", "")
 
         except httpx.HTTPStatusError as e:
@@ -535,18 +535,15 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成角色列表: {title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/analysis/generate-characters",
-                json={
+            result = await self._post_json(
+                "/api/v1/analysis/generate-characters",
+                {
                     "title": title,
                     "genre": genre,
                     "synopsis": synopsis,
                     "outline": outline
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("characters", [])
 
         except httpx.HTTPStatusError as e:
@@ -585,19 +582,18 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成世界观设定: {title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/analysis/generate-world-settings",
-                json={
+            result = await self._post_json(
+                "/api/v1/analysis/generate-world-settings",
+                {
                     "title": title,
                     "genre": genre,
                     "synopsis": synopsis,
                     "outline": outline
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
-            return result.get("world_settings", [])
+            if isinstance(result, list):
+                return result
+            return result.get("world_settings") or result.get("settings") or []
 
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP错误 {e.response.status_code}: {e.response.text}"
@@ -610,6 +606,58 @@ class AIServiceClient:
         except Exception as e:
             logger.error(f"[AI Service] 未知错误: {str(e)}")
             raise Exception(f"生成世界观设定失败: {str(e)}")
+
+    async def generate_character_relations(
+        self,
+        title: str,
+        genre: str,
+        synopsis: str,
+        outline: str,
+        characters: list,
+        progress_callback=None
+    ) -> list:
+        """
+        生成角色关系
+
+        Args:
+            title: 小说标题
+            genre: 小说类型
+            synopsis: 简介
+            outline: 大纲
+            characters: 角色列表
+            progress_callback: 进度回调（保留但不使用）
+
+        Returns:
+            角色关系列表
+        """
+        try:
+            logger.info(f"[AI Service] 生成角色关系: {title}")
+
+            result = await self._post_json(
+                "/api/v1/analysis/generate-character-relations",
+                {
+                    "title": title,
+                    "genre": genre,
+                    "synopsis": synopsis,
+                    "outline": outline,
+                    "characters": characters,
+                }
+            )
+            if isinstance(result, list):
+                return result
+            return result.get("relations") or []
+
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP错误 {e.response.status_code}: {e.response.text}"
+            logger.error(f"[AI Service] {error_msg}")
+            raise Exception(f"生成角色关系失败: {error_msg}")
+        except httpx.RequestError as e:
+            error_msg = f"请求错误: {str(e)}"
+            logger.error(f"[AI Service] {error_msg}")
+            raise Exception(f"生成角色关系失败: {error_msg}")
+        except Exception as e:
+            logger.error(f"[AI Service] 未知错误: {str(e)}")
+            raise Exception(f"生成角色关系失败: {str(e)}")
 
     async def generate_timeline_events(
         self,
@@ -635,18 +683,15 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成时间线事件: {title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/analysis/generate-timeline",
-                json={
+            result = await self._post_json(
+                "/api/v1/analysis/generate-timeline",
+                {
                     "title": title,
                     "genre": genre,
                     "synopsis": synopsis,
                     "outline": outline
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("events", [])
 
         except httpx.HTTPStatusError as e:
@@ -685,18 +730,16 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 生成伏笔: {title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/analysis/generate-foreshadowings",
-                json={
+            result = await self._post_json(
+                "/api/v1/analysis/generate-foreshadowings",
+                {
                     "title": title,
                     "genre": genre,
                     "synopsis": synopsis,
-                    "outline": outline
-                },
-                headers=self._get_headers()
+                    "outline": outline,
+                    "full_outline": outline
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("foreshadowings", [])
 
         except httpx.HTTPStatusError as e:
@@ -735,19 +778,16 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 提取章节伏笔: {chapter_title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/analysis/extract-foreshadowings",
-                json={
+            result = await self._post_json(
+                "/api/v1/analysis/extract-foreshadowings",
+                {
                     "title": title,
                     "genre": genre,
                     "chapter_title": chapter_title,
                     "chapter_content": chapter_content,
                     "existing_foreshadowings": existing_foreshadowings or []
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("foreshadowings", [])
 
         except httpx.HTTPStatusError as e:
@@ -788,20 +828,17 @@ class AIServiceClient:
         try:
             logger.info(f"[AI Service] 提取下一章钩子: {chapter_title}")
 
-            response = await self.client.post(
-                f"{self.base_url}/api/v1/analysis/extract-chapter-hook",
-                json={
+            result = await self._post_json(
+                "/api/v1/analysis/extract-chapter-hook",
+                {
                     "title": title,
                     "genre": genre,
                     "chapter_title": chapter_title,
                     "chapter_content": chapter_content,
                     "next_chapter_title": next_chapter_title,
                     "next_chapter_summary": next_chapter_summary
-                },
-                headers=self._get_headers()
+                }
             )
-            response.raise_for_status()
-            result = response.json()
             return result.get("hook", "")
 
         except httpx.HTTPStatusError as e:

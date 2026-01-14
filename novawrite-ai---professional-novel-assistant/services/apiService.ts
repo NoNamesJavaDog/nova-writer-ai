@@ -1011,3 +1011,134 @@ export const currentNovelApi = {
   },
 };
 
+export const graphApi = {
+  sync: async (novelId: string): Promise<{ status: string; message?: string }> => {
+    return apiRequest<{ status: string; message?: string }>(`/api/graph/novels/${novelId}/sync`, {
+      method: 'POST',
+    });
+  },
+  overview: async (novelId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/overview`);
+  },
+  consistencyCheck: async (novelId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/consistency-check`);
+  },
+  foreshadowingStatus: async (novelId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/foreshadowings/status`);
+  },
+  causalChain: async (novelId: string, eventId?: string, limit?: number): Promise<any> => {
+    const params = new URLSearchParams();
+    if (eventId) params.append('event_id', eventId);
+    if (typeof limit === 'number') params.append('limit', String(limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return apiRequest<any>(`/api/graph/novels/${novelId}/timeline/causal-chain${suffix}`);
+  },
+  causalSummary: async (novelId: string, eventId: string, limit?: number): Promise<any> => {
+    const params = new URLSearchParams({ event_id: eventId });
+    if (typeof limit === 'number') params.append('limit', String(limit));
+    return apiRequest<any>(`/api/graph/novels/${novelId}/timeline/causal-summary?${params.toString()}`);
+  },
+  worldSettings: async (novelId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/world-settings`);
+  },
+  characterRelations: async (novelId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/character-relations`);
+  },
+  generateCharacterRelations: async (novelId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/character-relations/generate`, {
+      method: 'POST',
+    });
+  },
+  createCharacterRelation: async (
+    novelId: string,
+    payload: { source_id: string; target_id: string; relation_type: string; description?: string; weight?: number; stage?: string }
+  ): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/character-relations`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  syncCharacterRelationsDb: async (novelId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/character-relations/sync-db`, {
+      method: 'POST',
+    });
+  },
+  exportCharacterRelations: async (novelId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/character-relations/export`);
+  },
+  updateCharacterRelation: async (
+    novelId: string,
+    relationId: string,
+    payload: { relation_type?: string; description?: string; weight?: number; stage?: string }
+  ): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/character-relations/${relationId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteCharacterRelation: async (novelId: string, relationId: string): Promise<any> => {
+    return apiRequest<any>(`/api/graph/novels/${novelId}/character-relations/${relationId}`, {
+      method: 'DELETE',
+    });
+  },
+  search: async (novelId: string, query: string, limit?: number): Promise<any> => {
+    const params = new URLSearchParams({ query });
+    if (typeof limit === 'number') params.append('limit', String(limit));
+    return apiRequest<any>(`/api/graph/novels/${novelId}/search?${params.toString()}`);
+  },
+  searchRelations: async (novelId: string, query: string, hops?: number, limit?: number): Promise<any> => {
+    const params = new URLSearchParams({ query });
+    if (typeof hops === 'number') params.append('hops', String(hops));
+    if (typeof limit === 'number') params.append('limit', String(limit));
+    return apiRequest<any>(`/api/graph/novels/${novelId}/search/relations?${params.toString()}`);
+  },
+};
+
+export const agentApi = {
+  run: async (payload: { novel_id: string; agent: string; message: string; use_context?: boolean }): Promise<any> => {
+    return apiRequest<any>('/api/agents/run', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  runStream: async (payload: { novel_id: string; agent: string; message: string; use_context?: boolean }): Promise<Response> => {
+    return apiFetch('/api/agents/run/stream', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  flow: async (payload: { novel_id: string; message?: string; max_retries?: number; critic_threshold?: number; summarize_chapters?: boolean; overwrite_summaries?: boolean }): Promise<any> => {
+    return apiRequest<any>('/api/agents/flow', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  flowStream: async (payload: { novel_id: string; message?: string; volume_id?: string; chapter_id?: string; max_retries?: number; critic_threshold?: number; summarize_chapters?: boolean; overwrite_summaries?: boolean }): Promise<Response> => {
+    return apiFetch('/api/agents/flow/stream', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  flowResumeStream: async (payload: { run_id: string }): Promise<Response> => {
+    return apiFetch('/api/agents/flow/resume/stream', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  cancelRun: async (payload: { run_id: string }): Promise<any> => {
+    return apiRequest<any>('/api/agents/cancel', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  history: async (novelId: string, limit?: number): Promise<any> => {
+    const params = new URLSearchParams({ novel_id: novelId });
+    if (typeof limit === 'number') params.append('limit', String(limit));
+    return apiRequest<any>(`/api/agents/history?${params.toString()}`);
+  },
+  chatHistory: async (novelId: string, limit?: number): Promise<any> => {
+    const params = new URLSearchParams({ novel_id: novelId });
+    if (typeof limit === 'number') params.append('limit', String(limit));
+    return apiRequest<any>(`/api/agents/chat?${params.toString()}`);
+  },
+};

@@ -49,7 +49,7 @@ class GeminiProvider(AIServiceProvider):
         if self.proxy:
             # 确保代理地址格式正确（http:// 或 https://）
             proxy_url = self.proxy.strip()
-            if not proxy_url.startswith(('http://', 'https://', 'socks5://')):
+            if not proxy_url.startswith(('http://', 'https://', 'socks5://', 'socks5h://')):
                 proxy_url = f"http://{proxy_url}"
 
             os.environ['HTTP_PROXY'] = proxy_url
@@ -1215,6 +1215,64 @@ class GeminiProvider(AIServiceProvider):
 
         except Exception as e:
             raise Exception(f"生成时间线事件失败: {str(e)}")
+
+    async def generate_character_relations(
+        self,
+        title: str,
+        genre: str,
+        synopsis: str,
+        outline: str,
+        characters: List[Dict],
+        progress_callback: Optional[Callable] = None
+    ) -> List[Dict]:
+        """生成角色关系"""
+        try:
+            if progress_callback:
+                progress_callback.update(20, "开始生成角色关系...")
+
+            character_text = "\n".join(
+                [f"- {c.get('name', '')}（{c.get('role', '')}）" for c in characters if c]
+            )
+            prompt = f"""基于以下小说信息与角色列表，生成角色之间的关键关系（3-8条）。
+标题：{title}
+类型：{genre}
+简介：{synopsis}
+大纲：{outline[:1200]}
+角色列表：
+{character_text}
+
+仅返回 JSON 数组，每个对象包含：
+- "source_name"（源角色，必须来自角色列表）
+- "target_name"（目标角色，必须来自角色列表）
+- "relation_type"（关系类型，如：盟友、敌对、师徒、亲属、上下级、恋人等）
+- "description"（简短关系说明）
+"""
+
+            if progress_callback:
+                progress_callback.update(60, "正在调用 AI 生成关系...")
+
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.6,
+                }
+            )
+
+            if not response.text:
+                raise Exception("API 返回空响应")
+
+            relations = json.loads(response.text)
+            if not isinstance(relations, list):
+                raise Exception("返回的数据格式不正确")
+
+            if progress_callback:
+                progress_callback.update(100, "角色关系生成完成")
+
+            return relations
+        except Exception as e:
+            raise Exception(f"生成角色关系失败: {str(e)}")
 
     async def generate_foreshadowings_from_outline(
         self,

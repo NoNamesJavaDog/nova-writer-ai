@@ -1,4 +1,4 @@
-"""
+﻿"""
 NovaWrite AI 后端主应用
 包含所有 API 路由
 """
@@ -7,15 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import and_, or_
-from typing import List, Optional, Dict, Any
+from sqlalchemy import and_, or_, text, func, bindparam
+from typing import List, Optional, Dict, Any, Iterable
 import time
 import json
 import uuid
 import logging
 import threading
+import asyncio
+import re
 
-from core.config import CORS_ORIGINS, DEBUG
+from core.config import CORS_ORIGINS, DEBUG, NEO4J_ENABLED
 from core.database import get_db, SessionLocal
 from core.security import (
     get_current_user, create_access_token, create_refresh_token,
@@ -55,14 +57,16 @@ from schemas import (
     # 任务相关
     TaskResponse
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from core.security import generate_captcha, verify_captcha, check_login_status
 from services.ai.gemini_service import (
     generate_full_outline, generate_volume_outline_stream, generate_volume_outline as generate_volume_outline_impl,
     generate_chapter_outline as generate_chapter_outline_impl, write_chapter_content_stream,
     write_chapter_content as write_chapter_content_impl,
-    generate_characters, generate_world_settings, generate_timeline_events,
-    generate_foreshadowings_from_outline, modify_outline_by_dialogue
+    generate_characters, generate_character_relations,
+    generate_world_settings, generate_timeline_events,
+    generate_foreshadowings_from_outline, modify_outline_by_dialogue,
+    summarize_chapter_content
 )
 from services.task.task_service import create_task, get_task_executor, ProgressCallback
 from services.embedding.vector_helper import (
@@ -75,10 +79,39 @@ from services.ai.chapter_writing_service import (
     prepare_chapter_writing_context,
     get_forced_previous_chapter_context
 )
+from services.graph.graph_sync_service import (
+    sync_novel_graph, delete_novel_graph, upsert_character_relations
+)
+from services.graph.neo4j_client import run_cypher
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_cancel_lock = threading.Lock()
+_cancel_flags: Dict[str, bool] = {}
+_run_owners: Dict[str, str] = {}
+
+
+def _register_run_owner(run_id: str, user_id: str) -> None:
+    with _cancel_lock:
+        _run_owners[run_id] = user_id
+
+
+def _request_cancel(run_id: str) -> None:
+    with _cancel_lock:
+        _cancel_flags[run_id] = True
+
+
+def _is_cancelled(run_id: str) -> bool:
+    with _cancel_lock:
+        return _cancel_flags.get(run_id, False)
+
+
+def _clear_cancel(run_id: str) -> None:
+    with _cancel_lock:
+        _cancel_flags.pop(run_id, None)
+        _run_owners.pop(run_id, None)
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -168,6 +201,28 @@ def convert_to_camel_case(data: Any) -> Any:
         return [convert_to_camel_case(item) for item in data]
     else:
         return data
+
+def run_async(coro):
+    """Run an async coroutine in a sync context."""
+    return asyncio.run(coro)
+
+def trigger_graph_sync(novel_id: str) -> None:
+    """Sync novel graph data to Neo4j in background."""
+    if not NEO4J_ENABLED:
+        return
+    threading.Thread(target=sync_novel_graph, args=(novel_id,), daemon=True).start()
+
+def require_graph_enabled() -> None:
+    if not NEO4J_ENABLED:
+        raise HTTPException(status_code=503, detail="Graph is disabled")
+
+
+def require_novel_owner(db: Session, novel_id: str, user_id: str) -> Novel:
+    """校验小说归属并返回小说。"""
+    novel = db.query(Novel).filter(Novel.id == novel_id, Novel.user_id == user_id).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    return novel
 
 # ==================== 认证路由 ====================
 
@@ -542,6 +597,7 @@ async def create_novel(
         db.add(novel)
         db.commit()
         db.refresh(novel)
+        trigger_graph_sync(novel.id)
         
         novel_dict = {
             "id": novel.id,
@@ -597,6 +653,7 @@ async def update_novel(
     
     db.commit()
     db.refresh(novel)
+    trigger_graph_sync(novel.id)
     
     return await get_novel(novel_id, current_user, db)
 
@@ -616,6 +673,7 @@ async def delete_novel(
     
     db.delete(novel)
     db.commit()
+    delete_novel_graph(novel_id)
     return {"message": "小说已删除"}
 
 # ==================== 同步路由 ====================
@@ -919,6 +977,7 @@ async def sync_novel(
                 db.delete(foreshadowing)
     
     db.commit()
+    trigger_graph_sync(novel_id)
     return await get_novel(novel_id, current_user, db)
 
 # ==================== 卷路由 ====================
@@ -996,6 +1055,7 @@ async def create_volume(
     db.add(volume)
     db.commit()
     db.refresh(volume)
+    trigger_graph_sync(novel_id)
     
     volume_dict = {
         "id": volume.id,
@@ -1037,6 +1097,7 @@ async def update_volume(
     
     db.commit()
     db.refresh(volume)
+    trigger_graph_sync(novel_id)
     
     volume_dict = {
         "id": volume.id,
@@ -1079,6 +1140,7 @@ async def delete_volume(
     
     db.delete(volume)
     db.commit()
+    trigger_graph_sync(novel_id)
     return {"message": "卷已删除"}
 
 # ==================== 章节路由 ====================
@@ -1224,6 +1286,7 @@ async def update_chapter(
     
     db.commit()
     db.refresh(chapter)
+    trigger_graph_sync(chapter.volume.novel_id)
     
     chapter_dict = {
         "id": chapter.id,
@@ -1256,6 +1319,7 @@ async def delete_chapter(
     
     db.delete(chapter)
     db.commit()
+    trigger_graph_sync(chapter.volume.novel_id)
     return {"message": "章节已删除"}
 
 @app.post("/api/chapters/{chapter_id}/store-embedding-sync")
@@ -1459,6 +1523,7 @@ async def update_character(
     
     db.commit()
     db.refresh(character)
+    trigger_graph_sync(novel_id)
     
     character_dict = {
         "id": character.id,
@@ -1493,6 +1558,7 @@ async def delete_character(
     
     db.delete(character)
     db.commit()
+    trigger_graph_sync(novel_id)
     return {"message": "角色已删除"}
 
 # ==================== 世界观路由 ====================
@@ -1626,6 +1692,7 @@ async def update_world_setting(
     
     db.commit()
     db.refresh(world_setting)
+    trigger_graph_sync(novel_id)
     
     world_setting_dict = {
         "id": world_setting.id,
@@ -1657,6 +1724,7 @@ async def delete_world_setting(
     
     db.delete(world_setting)
     db.commit()
+    trigger_graph_sync(novel_id)
     return {"message": "世界观设定已删除"}
 
 # ==================== 时间线路由 ====================
@@ -1766,6 +1834,7 @@ async def update_timeline_event(
     
     db.commit()
     db.refresh(timeline_event)
+    trigger_graph_sync(novel_id)
     
     timeline_event_dict = {
         "id": timeline_event.id,
@@ -1797,6 +1866,7 @@ async def delete_timeline_event(
     
     db.delete(timeline_event)
     db.commit()
+    trigger_graph_sync(novel_id)
     return {"message": "时间线事件已删除"}
 
 # ==================== 伏笔路由 ====================
@@ -1911,6 +1981,7 @@ async def update_foreshadowing(
     
     db.commit()
     db.refresh(foreshadowing)
+    trigger_graph_sync(novel_id)
     
     foreshadowing_dict = {
         "id": foreshadowing.id,
@@ -1943,6 +2014,7 @@ async def delete_foreshadowing(
     
     db.delete(foreshadowing)
     db.commit()
+    trigger_graph_sync(novel_id)
     return {"message": "伏笔已删除"}
 
 # ==================== 当前小说路由 ====================
@@ -2022,12 +2094,12 @@ async def generate_outline(
         def execute_task():
             try:
                 progress = ProgressCallback(task.id)
-                result = generate_full_outline(
+                result = run_async(generate_full_outline(
                     title=request.title,
                     genre=request.genre,
                     synopsis=request.synopsis,
                     progress_callback=progress
-                )
+                ))
                 
                 # 更新任务状态
                 task_db = SessionLocal()
@@ -2063,7 +2135,7 @@ async def generate_outline(
         }
     else:
         # 同步模式（不推荐，但保留兼容性）
-        result = generate_full_outline(
+        result = await generate_full_outline(
             title=request.title,
             genre=request.genre,
             synopsis=request.synopsis
@@ -2101,7 +2173,7 @@ async def generate_chapter_outline(
     current_user: User = Depends(get_current_user)
 ):
     """生成章节列表"""
-    chapters = generate_chapter_outline_impl(
+    chapters = await generate_chapter_outline_impl(
         novel_title=request.novel_title,
         genre=request.genre,
         full_outline=request.full_outline,
@@ -2662,13 +2734,13 @@ async def generate_characters_endpoint(
         def execute_task():
             try:
                 progress = ProgressCallback(task.id)
-                result = generate_characters(
+                result = run_async(generate_characters(
                     title=request.title,
                     genre=request.genre,
                     synopsis=request.synopsis,
                     outline=request.outline,
                     progress_callback=progress
-                )
+                ))
                 
                 task_db = SessionLocal()
                 try:
@@ -2702,7 +2774,7 @@ async def generate_characters_endpoint(
             "message": "任务已创建，正在后台执行"
         }
     else:
-        result = generate_characters(
+        result = await generate_characters(
             title=request.title,
             genre=request.genre,
             synopsis=request.synopsis,
@@ -2734,13 +2806,13 @@ async def generate_world_settings_endpoint(
         def execute_task():
             try:
                 progress = ProgressCallback(task.id)
-                result = generate_world_settings(
+                result = run_async(generate_world_settings(
                     title=request.title,
                     genre=request.genre,
                     synopsis=request.synopsis,
                     outline=request.outline,
                     progress_callback=progress
-                )
+                ))
                 
                 task_db = SessionLocal()
                 try:
@@ -2774,7 +2846,7 @@ async def generate_world_settings_endpoint(
             "message": "任务已创建，正在后台执行"
         }
     else:
-        result = generate_world_settings(
+        result = await generate_world_settings(
             title=request.title,
             genre=request.genre,
             synopsis=request.synopsis,
@@ -2806,13 +2878,13 @@ async def generate_timeline_events_endpoint(
         def execute_task():
             try:
                 progress = ProgressCallback(task.id)
-                result = generate_timeline_events(
+                result = run_async(generate_timeline_events(
                     title=request.title,
                     genre=request.genre,
                     synopsis=request.synopsis,
                     outline=request.outline,
                     progress_callback=progress
-                )
+                ))
                 
                 task_db = SessionLocal()
                 try:
@@ -2846,7 +2918,7 @@ async def generate_timeline_events_endpoint(
             "message": "任务已创建，正在后台执行"
         }
     else:
-        result = generate_timeline_events(
+        result = await generate_timeline_events(
             title=request.title,
             genre=request.genre,
             synopsis=request.synopsis,
@@ -2878,13 +2950,13 @@ async def generate_foreshadowings_endpoint(
         def execute_task():
             try:
                 progress = ProgressCallback(task.id)
-                result = generate_foreshadowings_from_outline(
+                result = run_async(generate_foreshadowings_from_outline(
                     title=request.title,
                     genre=request.genre,
                     synopsis=request.synopsis,
                     outline=request.outline,
                     progress_callback=progress
-                )
+                ))
                 
                 task_db = SessionLocal()
                 try:
@@ -2918,7 +2990,7 @@ async def generate_foreshadowings_endpoint(
             "message": "任务已创建，正在后台执行"
         }
     else:
-        result = generate_foreshadowings_from_outline(
+        result = await generate_foreshadowings_from_outline(
             title=request.title,
             genre=request.genre,
             synopsis=request.synopsis,
@@ -3005,11 +3077,11 @@ async def generate_complete_outline(
             # 1. 生成完整大纲和卷结构（20%）
             logger.info("步骤 1/6: 生成完整大纲和卷结构")
             update_task_progress(task_db, task.id, 5, "正在生成完整大纲...")
-            outline_result = generate_full_outline(
+            outline_result = run_async(generate_full_outline(
                 title=novel_obj.title,
                 genre=novel_obj.genre,
                 synopsis=novel_obj.synopsis
-            )
+            ))
             
             # 保存大纲
             novel_obj.full_outline = outline_result.get("outline", "")
@@ -3035,12 +3107,12 @@ async def generate_complete_outline(
             # 2. 生成角色（40%）
             logger.info("步骤 2/6: 生成角色")
             update_task_progress(task_db, task.id, 25, "正在生成角色...")
-            characters_result = generate_characters(
+            characters_result = run_async(generate_characters(
                 title=novel_obj.title,
                 genre=novel_obj.genre,
                 synopsis=novel_obj.synopsis,
                 outline=novel_obj.full_outline
-            )
+            ))
             
             # characters_result 直接是列表，不是字典
             for idx, char_data in enumerate(characters_result):
@@ -3064,12 +3136,12 @@ async def generate_complete_outline(
             # 3. 生成世界观（60%）
             logger.info("步骤 3/6: 生成世界观")
             update_task_progress(task_db, task.id, 45, "正在生成世界观...")
-            world_settings_result = generate_world_settings(
+            world_settings_result = run_async(generate_world_settings(
                 title=novel_obj.title,
                 genre=novel_obj.genre,
                 synopsis=novel_obj.synopsis,
                 outline=novel_obj.full_outline
-            )
+            ))
             
             # world_settings_result 直接是列表，不是字典
             for idx, ws_data in enumerate(world_settings_result):
@@ -3090,12 +3162,12 @@ async def generate_complete_outline(
             # 4. 生成时间线（75%）
             logger.info("步骤 4/6: 生成时间线")
             update_task_progress(task_db, task.id, 65, "正在生成时间线...")
-            timeline_result = generate_timeline_events(
+            timeline_result = run_async(generate_timeline_events(
                 title=novel_obj.title,
                 genre=novel_obj.genre,
                 synopsis=novel_obj.synopsis,
                 outline=novel_obj.full_outline
-            )
+            ))
             
             # timeline_result 直接是列表，不是字典
             for idx, event_data in enumerate(timeline_result):
@@ -3116,12 +3188,12 @@ async def generate_complete_outline(
             # 5. 生成伏笔（90%）
             logger.info("步骤 5/6: 生成伏笔")
             update_task_progress(task_db, task.id, 80, "正在生成伏笔...")
-            foreshadowings_result = generate_foreshadowings_from_outline(
+            foreshadowings_result = run_async(generate_foreshadowings_from_outline(
                 title=novel_obj.title,
                 genre=novel_obj.genre,
                 synopsis=novel_obj.synopsis,
                 outline=novel_obj.full_outline
-            )
+            ))
             
             # foreshadowings_result 直接是列表，不是字典
             for idx, foreshadowing_data in enumerate(foreshadowings_result):
@@ -3247,7 +3319,7 @@ async def generate_volume_outline_task(
             progress.update(10, f"开始生成第 {volume_index + 1} 卷《{volume_obj.title}》的详细大纲...")
             
             # 生成卷大纲
-            volume_outline = generate_volume_outline_impl(
+            volume_outline = run_async(generate_volume_outline_impl(
                 novel_title=novel_obj.title,
                 full_outline=novel_obj.full_outline or "",
                 volume_title=volume_obj.title,
@@ -3255,7 +3327,7 @@ async def generate_volume_outline_task(
                 characters=characters_data,
                 volume_index=volume_index,
                 progress_callback=progress
-            )
+            ))
             
             progress.update(90, "正在保存卷大纲到数据库...")
             
@@ -3389,7 +3461,7 @@ async def generate_all_volume_outlines_task(
 
                 try:
                     progress.update(current_progress, f"生成第 {volume_obj.volume_order + 1} 卷《{vol_title}》卷大纲... ({idx + 1}/{total})")
-                    volume_outline = generate_volume_outline_impl(
+                    volume_outline = run_async(generate_volume_outline_impl(
                         novel_title=novel_obj.title,
                         full_outline=novel_obj.full_outline or "",
                         volume_title=vol_title,
@@ -3397,7 +3469,7 @@ async def generate_all_volume_outlines_task(
                         characters=characters_data,
                         volume_index=volume_obj.volume_order,
                         progress_callback=None
-                    )
+                    ))
 
                     volume_obj.outline = volume_outline
                     volume_obj.updated_at = int(time.time() * 1000)
@@ -3626,7 +3698,7 @@ async def generate_all_chapters_task(
                             final_chapter_count = extracted_count
                             logger.info(f"第 {vol_index + 1} 卷：从卷大纲中提取到章节规划：{final_chapter_count} 章（原文：{chapter_match.group(0)}）")
 
-                    chapters_data = generate_chapter_outline_impl(
+                    chapters_data = run_async(generate_chapter_outline_impl(
                         novel_title=novel_obj.title,
                         genre=novel_obj.genre,
                         full_outline=novel_obj.full_outline or "",
@@ -3638,7 +3710,7 @@ async def generate_all_chapters_task(
                         chapter_count=final_chapter_count,
                         previous_volumes_info=previous_volumes_info if previous_volumes_info else None,
                         future_volumes_info=future_volumes_info if future_volumes_info else None
-                    )
+                    ))
 
                     progress.update(base_progress + 5, f"已生成 {len(chapters_data)} 章，正在保存到数据库...")
 
@@ -3812,7 +3884,7 @@ async def generate_chapters_task(
             # 强制确保存在“卷详细大纲”：没有卷大纲时，章节列表容易串卷/重复
             if not (volume_obj.outline or "").strip():
                 progress.update(8, "检测到本卷尚未生成卷大纲，正在自动生成卷详细大纲以约束章节范围...")
-                volume_outline = generate_volume_outline_impl(
+                volume_outline = run_async(generate_volume_outline_impl(
                     novel_title=novel_obj.title,
                     full_outline=novel_obj.full_outline or "",
                     volume_title=volume_obj.title,
@@ -3820,7 +3892,7 @@ async def generate_chapters_task(
                     characters=[{"name": c.name, "role": c.role} for c in task_db.query(Character).filter(Character.novel_id == novel_id).all()],
                     volume_index=volume_index,
                     progress_callback=progress
-                )
+                ))
                 volume_obj.outline = volume_outline
                 volume_obj.updated_at = int(time.time() * 1000)
                 task_db.commit()
@@ -3889,7 +3961,7 @@ async def generate_chapters_task(
                     progress.update(16, f"从卷大纲中检测到章节规划：{final_chapter_count} 章")
 
             # 生成章节列表
-            chapters_data = generate_chapter_outline_impl(
+            chapters_data = run_async(generate_chapter_outline_impl(
                 novel_title=novel_obj.title,
                 genre=novel_obj.genre,
                 full_outline=novel_obj.full_outline or "",
@@ -3901,7 +3973,7 @@ async def generate_chapters_task(
                 chapter_count=final_chapter_count,
                 previous_volumes_info=previous_volumes_info if previous_volumes_info else None,
                 future_volumes_info=future_volumes_info if future_volumes_info else None
-            )
+            ))
             
             progress.update(80, f"已生成 {len(chapters_data)} 个章节，正在保存到数据库...")
             
@@ -4045,7 +4117,7 @@ async def modify_outline_by_dialogue_endpoint(
             progress = ProgressCallback(task.id)
             progress.update(10, "正在分析修改请求...")
             
-            result = modify_outline_by_dialogue(
+            result = run_async(modify_outline_by_dialogue(
                 title=novel_title,
                 genre=novel_genre,
                 synopsis=novel_synopsis,
@@ -4055,7 +4127,7 @@ async def modify_outline_by_dialogue_endpoint(
                 timeline=timeline,
                 user_message=request.user_message,
                 progress_callback=progress
-            )
+            ))
             
             progress.update(80, "正在保存修改后的数据...")
             
@@ -4407,6 +4479,3545 @@ async def get_novel_tasks(
         }
         result.append(task_dict)
     return result
+
+# ==================== Graph 路由 ====================
+
+class CharacterRelationCreate(BaseModel):
+    source_id: str
+    target_id: str
+    relation_type: str
+    description: Optional[str] = None
+    weight: Optional[int] = None
+    stage: Optional[str] = None
+
+
+class CharacterRelationUpdate(BaseModel):
+    relation_type: Optional[str] = None
+    description: Optional[str] = None
+    weight: Optional[int] = None
+    stage: Optional[str] = None
+
+
+@app.post("/api/graph/novels/{novel_id}/sync")
+async def graph_sync_novel(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    sync_novel_graph(novel_id)
+    return {"status": "ok", "message": "graph synced"}
+
+
+@app.get("/api/graph/novels/{novel_id}/overview")
+async def graph_overview(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    result = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})
+        OPTIONAL MATCH (n)-[:HAS_VOLUME]->(v:Volume)
+        OPTIONAL MATCH (n)-[:HAS_CHARACTER]->(c:Character)
+        OPTIONAL MATCH (n)-[:HAS_WORLD_SETTING]->(w:WorldSetting)
+        OPTIONAL MATCH (n)-[:HAS_TIMELINE_EVENT]->(t:TimelineEvent)
+        OPTIONAL MATCH (n)-[:HAS_FORESHADOWING]->(f:Foreshadowing)
+        OPTIONAL MATCH (n)-[:HAS_VOLUME]->(:Volume)-[:HAS_CHAPTER]->(ch:Chapter)
+        RETURN count(DISTINCT v) AS volumes,
+               count(DISTINCT ch) AS chapters,
+               count(DISTINCT c) AS characters,
+               count(DISTINCT w) AS world_settings,
+               count(DISTINCT t) AS timeline_events,
+               count(DISTINCT f) AS foreshadowings
+        """,
+        {"novel_id": novel_id},
+    )
+    return result[0] if result else {}
+
+
+@app.get("/api/graph/novels/{novel_id}/foreshadowings/status")
+async def graph_foreshadowing_status(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_FORESHADOWING]->(f:Foreshadowing)
+        OPTIONAL MATCH (f)-[:INTRODUCED_IN]->(intro:Chapter)
+        OPTIONAL MATCH (f)-[:RESOLVED_IN]->(resolved:Chapter)
+        RETURN f.id AS id,
+               f.content AS content,
+               f.is_resolved AS is_resolved,
+               intro.id AS intro_id,
+               resolved.id AS resolved_id
+        ORDER BY f.foreshadowing_order
+        """,
+        {"novel_id": novel_id},
+    )
+    return {"items": rows}
+
+
+@app.get("/api/graph/novels/{novel_id}/consistency-check")
+async def graph_consistency_check(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+
+    timeline_rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_TIMELINE_EVENT]->(e:TimelineEvent)
+        RETURN e.id AS id, e.event_order AS event_order
+        ORDER BY e.event_order
+        """,
+        {"novel_id": novel_id},
+    )
+    orders = [row.get("event_order") for row in timeline_rows if row.get("event_order") is not None]
+    order_counts: Dict[int, int] = {}
+    for order in orders:
+        order_counts[order] = order_counts.get(order, 0) + 1
+    duplicates = [order for order, count in order_counts.items() if count > 1]
+    gaps = []
+    if orders:
+        expected = set(range(min(orders), max(orders) + 1))
+        gaps = sorted(list(expected - set(orders)))
+
+    foreshadow_rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_FORESHADOWING]->(f:Foreshadowing)
+        OPTIONAL MATCH (f)-[:INTRODUCED_IN]->(intro:Chapter)
+        OPTIONAL MATCH (f)-[:RESOLVED_IN]->(resolved:Chapter)
+        RETURN f.id AS id,
+               f.is_resolved AS is_resolved,
+               intro.id AS intro_id,
+               intro.chapter_order AS intro_order,
+               resolved.id AS resolved_id,
+               resolved.chapter_order AS resolved_order
+        """,
+        {"novel_id": novel_id},
+    )
+    foreshadowing_issues = []
+    for row in foreshadow_rows:
+        is_resolved = str(row.get("is_resolved", "")).lower() == "true"
+        if is_resolved and not row.get("resolved_id"):
+            foreshadowing_issues.append({"id": row.get("id"), "issue": "resolved_without_chapter"})
+        if not is_resolved and row.get("resolved_id"):
+            foreshadowing_issues.append({"id": row.get("id"), "issue": "unresolved_has_resolved_chapter"})
+        if not row.get("intro_id"):
+            foreshadowing_issues.append({"id": row.get("id"), "issue": "missing_intro_chapter"})
+        intro_order = row.get("intro_order")
+        resolved_order = row.get("resolved_order")
+        if intro_order is not None and resolved_order is not None and resolved_order < intro_order:
+            foreshadowing_issues.append({"id": row.get("id"), "issue": "resolved_before_intro"})
+
+    character_rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(c:Character)
+        RETURN c.id AS id, c.name AS name, c.age AS age
+        """,
+        {"novel_id": novel_id},
+    )
+
+    def _parse_age(age_value: Any) -> Optional[tuple[int, int]]:
+        if age_value is None:
+            return None
+        s = str(age_value).strip()
+        if not s:
+            return None
+        match = re.fullmatch(r"(\\d{1,3})(?:\\s*[-~–—]\\s*(\\d{1,3}))?(?:\\s*岁)?", s)
+        if not match:
+            return None
+        start = int(match.group(1))
+        end = int(match.group(2)) if match.group(2) else start
+        return (start, end)
+
+    character_issues = []
+    for row in character_rows:
+        age_raw = row.get("age")
+        if age_raw is None or str(age_raw).strip() == "":
+            continue
+        parsed = _parse_age(age_raw)
+        if not parsed:
+            character_issues.append({"id": row.get("id"), "issue": "invalid_age_format"})
+            continue
+        start, end = parsed
+        if start < 0 or end < 0 or start > 150 or end > 150:
+            character_issues.append({"id": row.get("id"), "issue": "age_out_of_range"})
+        if end < start:
+            character_issues.append({"id": row.get("id"), "issue": "age_range_inverted"})
+
+    world_setting_rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_WORLD_SETTING]->(w:WorldSetting)
+        RETURN w.id AS id, w.title AS title, w.category AS category, w.description AS description
+        """,
+        {"novel_id": novel_id},
+    )
+    location_names = []
+    rule_candidates = []
+    rule_keywords = ["规则", "法则", "禁令", "限制", "戒律", "律法", "规范", "制度", "法律", "条例", "守则", "禁制"]
+    for row in world_setting_rows:
+        category = (row.get("category") or "").lower()
+        if "location" in category or "place" in category or "地点" in category or "地理" in category:
+            title = (row.get("title") or "").strip()
+            if title:
+                location_names.append(title)
+        title = (row.get("title") or "").strip()
+        description = (row.get("description") or "").strip()
+        if any(keyword in (row.get("category") or "") for keyword in rule_keywords) or any(
+            keyword in f"{title}{description}" for keyword in rule_keywords
+        ):
+            rule_candidates.append({"id": row.get("id"), "title": title, "description": description})
+
+    timeline_rows_full = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_TIMELINE_EVENT]->(e:TimelineEvent)
+        RETURN e.id AS id, e.time AS time, e.event AS event, e.impact AS impact
+        ORDER BY e.event_order
+        """,
+        {"novel_id": novel_id},
+    )
+    missing_time = [row.get("id") for row in timeline_rows_full if not str(row.get("time") or "").strip()]
+
+    location_conflicts: List[Dict[str, Any]] = []
+    if location_names:
+        time_to_locations: Dict[str, Dict[str, List[str]]] = {}
+        for row in timeline_rows_full:
+            time_val = str(row.get("time") or "").strip()
+            if not time_val:
+                continue
+            event_text = str(row.get("event") or "")
+            matched = [loc for loc in location_names if loc in event_text]
+            if not matched:
+                continue
+            bucket = time_to_locations.setdefault(time_val, {})
+            for loc in matched:
+                bucket.setdefault(loc, []).append(row.get("id"))
+        for time_val, loc_map in time_to_locations.items():
+            if len(loc_map.keys()) > 1:
+                location_conflicts.append(
+                    {
+                        "time": time_val,
+                        "locations": sorted(loc_map.keys()),
+                        "event_ids": sorted({eid for ids in loc_map.values() for eid in ids if eid}),
+                    }
+                )
+
+    def _extract_prohibited_phrases(text_value: str) -> List[str]:
+        phrases = []
+        for match in re.finditer(r"(禁止|不得|不准|不可|严禁|限制)([^。；;,.，\\n]{2,20})", text_value):
+            phrase = match.group(2).strip()
+            if phrase:
+                phrases.append(phrase)
+        return phrases
+
+    world_rule_conflicts = []
+    if rule_candidates:
+        forbidden_markers = ["禁止", "不得", "不准", "不可", "严禁"]
+        for rule in rule_candidates:
+            rule_text = f"{rule.get('title') or ''} {rule.get('description') or ''}".strip()
+            phrases = _extract_prohibited_phrases(rule_text)
+            if not phrases:
+                continue
+            conflicts = []
+            for row in timeline_rows_full:
+                event_text = f"{row.get('event') or ''} {row.get('impact') or ''}"
+                if any(marker in event_text for marker in forbidden_markers):
+                    continue
+                for phrase in phrases:
+                    if phrase and phrase in event_text:
+                        conflicts.append(
+                            {"event_id": row.get("id"), "event": row.get("event"), "phrase": phrase}
+                        )
+                        break
+            if conflicts:
+                world_rule_conflicts.append(
+                    {
+                        "rule_id": rule.get("id"),
+                        "title": rule.get("title"),
+                        "description": rule.get("description"),
+                        "conflicts": conflicts,
+                    }
+                )
+
+    return {
+        "timeline": {
+            "duplicate_orders": duplicates,
+            "missing_orders": gaps,
+            "missing_time": missing_time,
+        },
+        "characters": character_issues,
+        "locations": location_conflicts,
+        "foreshadowings": foreshadowing_issues,
+        "world_rules": {"conflicts": world_rule_conflicts},
+    }
+
+
+@app.get("/api/graph/novels/{novel_id}/timeline/causal-chain")
+async def graph_causal_chain(
+    novel_id: str,
+    event_id: Optional[str] = None,
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_TIMELINE_EVENT]->(e:TimelineEvent)
+        RETURN e.id AS id, e.time AS time, e.event AS event, e.event_order AS event_order
+        ORDER BY e.event_order
+        """,
+        {"novel_id": novel_id},
+    )
+    if not rows:
+        return {"items": []}
+    if event_id:
+        idx = next((i for i, row in enumerate(rows) if row.get("id") == event_id), None)
+        if idx is None:
+            return {"items": []}
+        start = max(0, idx - limit)
+        end = min(len(rows), idx + limit + 1)
+        return {"items": rows[start:end], "center_id": event_id}
+    return {"items": rows[: max(1, limit)]}
+
+
+@app.get("/api/graph/novels/{novel_id}/timeline/causal-summary")
+async def graph_causal_summary(
+    novel_id: str,
+    event_id: str,
+    limit: int = 3,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_TIMELINE_EVENT]->(e:TimelineEvent)
+        RETURN e.id AS id, e.time AS time, e.event AS event, e.event_order AS event_order
+        ORDER BY e.event_order
+        """,
+        {"novel_id": novel_id},
+    )
+    if not rows:
+        return {"items": [], "summary": "", "center_id": event_id}
+    idx = next((i for i, row in enumerate(rows) if row.get("id") == event_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="event not found")
+    start = max(0, idx - limit)
+    end = min(len(rows), idx + limit + 1)
+    chain = rows[start:end]
+    current = rows[idx]
+
+    def _format_event(row: Dict[str, Any]) -> str:
+        time_val = str(row.get("time") or "").strip()
+        event_val = str(row.get("event") or "").strip()
+        if time_val and event_val:
+            return f"{time_val} {event_val}"
+        return event_val or time_val or ""
+
+    before = [r for r in rows[start:idx] if _format_event(r)]
+    after = [r for r in rows[idx + 1:end] if _format_event(r)]
+    summary_lines = [
+        f"当前: {_format_event(current) or '无'}",
+        f"前因: {'；'.join(_format_event(r) for r in before) if before else '无'}",
+        f"后果: {'；'.join(_format_event(r) for r in after) if after else '无'}",
+    ]
+    return {"items": chain, "summary": "\\n".join(summary_lines), "center_id": event_id}
+
+
+@app.get("/api/graph/novels/{novel_id}/character-relations")
+async def graph_character_relations(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(a:Character)
+        MATCH (n)-[:HAS_CHARACTER]->(b:Character)
+        MATCH (a)-[r:RELATES_TO]->(b)
+        RETURN r.id AS id,
+               r.type AS relation_type,
+               r.description AS description,
+               r.weight AS weight,
+               r.stage AS stage,
+               r.created_at AS created_at,
+               r.updated_at AS updated_at,
+               a.id AS source_id,
+               a.name AS source_name,
+               b.id AS target_id,
+               b.name AS target_name
+        ORDER BY r.updated_at DESC
+        """,
+        {"novel_id": novel_id},
+    )
+    return {"items": rows}
+
+
+@app.post("/api/graph/novels/{novel_id}/character-relations/sync-db")
+async def graph_sync_character_relations_db(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    graph_rows = _fetch_graph_relations(novel_id)
+    upserted = _upsert_character_relations_db(db, novel_id, graph_rows)
+    return {"status": "ok", "upserted": upserted}
+
+
+@app.get("/api/graph/novels/{novel_id}/character-relations/export")
+async def graph_export_character_relations(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    _ensure_character_relations_table(db)
+    rows = db.execute(
+        text(
+            """
+            SELECT id, novel_id, source_id, target_id, relation_type, description,
+                   weight, stage, created_at, updated_at
+            FROM character_relations
+            WHERE novel_id = :novel_id
+            ORDER BY updated_at DESC
+            """
+        ),
+        {"novel_id": novel_id},
+    ).mappings().all()
+    return {"items": [dict(row) for row in rows]}
+
+
+@app.post("/api/graph/novels/{novel_id}/character-relations/generate")
+async def graph_generate_character_relations(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    novel = require_novel_owner(db, novel_id, current_user.id)
+    if not novel.characters:
+        raise HTTPException(status_code=400, detail="no characters to generate relations")
+    name_to_id = {c.name: c.id for c in novel.characters if c.name}
+    characters_payload = [
+        {
+            "name": c.name,
+            "age": c.age or "",
+            "role": c.role or "",
+            "personality": c.personality or "",
+            "background": c.background or "",
+            "goals": c.goals or "",
+        }
+        for c in novel.characters
+        if c.name
+    ]
+    relations_result = run_async(
+        generate_character_relations(
+            title=novel.title,
+            genre=novel.genre,
+            synopsis=novel.synopsis or "",
+            outline=novel.full_outline or "",
+            characters=characters_payload,
+        )
+    )
+    upserted = upsert_character_relations(novel_id, relations_result, name_to_id)
+    graph_rows = _fetch_graph_relations(novel_id)
+    db_upserted = _upsert_character_relations_db(db, novel_id, graph_rows)
+    return {"status": "ok", "generated": len(relations_result or []), "upserted": upserted, "db_upserted": db_upserted}
+
+
+@app.post("/api/graph/novels/{novel_id}/character-relations")
+async def graph_create_character_relation(
+    novel_id: str,
+    payload: CharacterRelationCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    if payload.source_id == payload.target_id:
+        raise HTTPException(status_code=400, detail="source_id equals target_id")
+    now = int(time.time() * 1000)
+    relation_id = generate_uuid()
+    rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})
+        MATCH (n)-[:HAS_CHARACTER]->(a:Character {id: $source_id})
+        MATCH (n)-[:HAS_CHARACTER]->(b:Character {id: $target_id})
+        CREATE (a)-[r:RELATES_TO {
+            id: $relation_id,
+            type: $relation_type,
+            description: $description,
+            weight: $weight,
+            stage: $stage,
+            created_at: $now,
+            updated_at: $now
+        }]->(b)
+        RETURN r.id AS id,
+               r.type AS relation_type,
+               r.description AS description,
+               r.weight AS weight,
+               r.stage AS stage,
+               r.created_at AS created_at,
+               r.updated_at AS updated_at,
+               a.id AS source_id,
+               a.name AS source_name,
+               b.id AS target_id,
+               b.name AS target_name
+        """,
+        {
+            "novel_id": novel_id,
+            "source_id": payload.source_id,
+            "target_id": payload.target_id,
+            "relation_id": relation_id,
+            "relation_type": payload.relation_type,
+            "description": payload.description or "",
+            "weight": payload.weight,
+            "stage": payload.stage,
+            "now": now,
+        },
+    )
+    if not rows:
+        raise HTTPException(status_code=400, detail="relation create failed")
+    _upsert_character_relations_db(db, novel_id, [rows[0]])
+    return rows[0]
+
+
+@app.put("/api/graph/novels/{novel_id}/character-relations/{relation_id}")
+async def graph_update_character_relation(
+    novel_id: str,
+    relation_id: str,
+    payload: CharacterRelationUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    now = int(time.time() * 1000)
+    rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(a:Character)-[r:RELATES_TO {id: $relation_id}]->(b:Character)
+        SET r.type = COALESCE($relation_type, r.type),
+            r.description = COALESCE($description, r.description),
+            r.weight = COALESCE($weight, r.weight),
+            r.stage = COALESCE($stage, r.stage),
+            r.updated_at = $now
+        RETURN r.id AS id,
+               r.type AS relation_type,
+               r.description AS description,
+               r.weight AS weight,
+               r.stage AS stage,
+               r.created_at AS created_at,
+               r.updated_at AS updated_at,
+               a.id AS source_id,
+               a.name AS source_name,
+               b.id AS target_id,
+               b.name AS target_name
+        """,
+        {
+            "novel_id": novel_id,
+            "relation_id": relation_id,
+            "relation_type": payload.relation_type,
+            "description": payload.description,
+            "weight": payload.weight,
+            "stage": payload.stage,
+            "now": now,
+        },
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="relation not found")
+    _upsert_character_relations_db(db, novel_id, [rows[0]])
+    return rows[0]
+
+
+@app.delete("/api/graph/novels/{novel_id}/character-relations/{relation_id}")
+async def graph_delete_character_relation(
+    novel_id: str,
+    relation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(a:Character)-[r:RELATES_TO {id: $relation_id}]->(b:Character)
+        DELETE r
+        """,
+        {"novel_id": novel_id, "relation_id": relation_id},
+    )
+    _delete_character_relation_db(db, novel_id, relation_id)
+    return {"status": "ok"}
+
+
+@app.get("/api/graph/novels/{novel_id}/world-settings")
+async def graph_world_settings(
+    novel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_WORLD_SETTING]->(w:WorldSetting)
+        RETURN w.id AS id, w.title AS title, w.category AS category, w.description AS description
+        ORDER BY w.setting_order
+        """,
+        {"novel_id": novel_id},
+    )
+    return {"items": rows}
+
+
+@app.get("/api/graph/novels/{novel_id}/search")
+async def graph_search(
+    novel_id: str,
+    query: str,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    q = (query or "").lower()
+    if not q:
+        return {"items": []}
+    items = []
+    items += run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(c:Character)
+        WHERE toLower(c.name) CONTAINS $q OR toLower(c.role) CONTAINS $q
+        RETURN 'character' AS type, c.id AS id, c.name AS title, c.role AS subtitle
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "q": q, "limit": limit},
+    )
+    items += run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_WORLD_SETTING]->(w:WorldSetting)
+        WHERE toLower(w.title) CONTAINS $q OR toLower(w.description) CONTAINS $q
+        RETURN 'world_setting' AS type, w.id AS id, w.title AS title, w.category AS subtitle
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "q": q, "limit": limit},
+    )
+    items += run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_TIMELINE_EVENT]->(e:TimelineEvent)
+        WHERE toLower(e.event) CONTAINS $q OR toLower(e.time) CONTAINS $q
+        RETURN 'timeline_event' AS type, e.id AS id, e.event AS title, e.time AS subtitle
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "q": q, "limit": limit},
+    )
+    items += run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_FORESHADOWING]->(f:Foreshadowing)
+        WHERE toLower(f.content) CONTAINS $q
+        RETURN 'foreshadowing' AS type, f.id AS id, f.content AS title, '' AS subtitle
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "q": q, "limit": limit},
+    )
+    items += run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_VOLUME]->(:Volume)-[:HAS_CHAPTER]->(ch:Chapter)
+        WHERE toLower(ch.title) CONTAINS $q OR toLower(ch.summary) CONTAINS $q
+        RETURN 'chapter' AS type, ch.id AS id, ch.title AS title, '' AS subtitle
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "q": q, "limit": limit},
+    )
+    return {"items": items[: max(0, limit)]}
+
+
+@app.get("/api/graph/novels/{novel_id}/search/relations")
+async def graph_search_relations(
+    novel_id: str,
+    query: str,
+    hops: int = 2,
+    limit: int = 40,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_graph_enabled()
+    require_novel_owner(db, novel_id, current_user.id)
+    q = (query or "").lower()
+    if not q:
+        return {"items": []}
+    hops = max(1, min(hops, 3))
+    match_rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(c:Character)
+        WHERE toLower(c.name) CONTAINS $q OR toLower(c.role) CONTAINS $q
+        RETURN c.id AS id, c.name AS name
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "q": q, "limit": limit},
+    )
+    if not match_rows:
+        return {"items": []}
+    seed_ids = [row.get("id") for row in match_rows if row.get("id")]
+    chain_rows = run_cypher(
+        f"""
+        MATCH (n:Novel {{id: $novel_id}})-[:HAS_CHARACTER]->(start:Character)
+        WHERE start.id IN $seed_ids
+        MATCH (start)-[:RELATES_TO*1..{hops}]-(other:Character)
+        RETURN DISTINCT other.id AS id, other.name AS name
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "seed_ids": seed_ids, "limit": limit},
+    )
+    related_ids = {row.get("id") for row in chain_rows if row.get("id")}
+    related_ids.update(seed_ids)
+    if not related_ids:
+        return {"items": []}
+    id_to_name = {row.get("id"): row.get("name") for row in chain_rows if row.get("id")}
+    for row in match_rows:
+        if row.get("id") and row.get("name"):
+            id_to_name[row["id"]] = row["name"]
+    items = []
+    items += run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(c:Character)
+        WHERE c.id IN $character_ids
+        RETURN 'character' AS type, c.id AS id, c.name AS title, c.role AS subtitle
+        """,
+        {"novel_id": novel_id, "character_ids": list(related_ids)},
+    )
+    items += run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_TIMELINE_EVENT]->(e:TimelineEvent)
+        WHERE any(name IN $names WHERE toLower(e.event) CONTAINS toLower(name))
+        RETURN 'timeline_event' AS type, e.id AS id, e.event AS title, e.time AS subtitle
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "names": list(id_to_name.values()), "limit": limit},
+    )
+    items += run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_VOLUME]->(:Volume)-[:HAS_CHAPTER]->(ch:Chapter)
+        WHERE any(name IN $names WHERE toLower(ch.summary) CONTAINS toLower(name))
+        RETURN 'chapter' AS type, ch.id AS id, ch.title AS title, '' AS subtitle
+        LIMIT $limit
+        """,
+        {"novel_id": novel_id, "names": list(id_to_name.values()), "limit": limit},
+    )
+    return {"items": items[: max(0, limit)]}
+
+# ==================== Agent 路由 ====================
+
+class AgentRunRequest(BaseModel):
+    novel_id: str
+    agent: str
+    message: str
+    use_context: bool = True
+
+
+class AgentFlowRequest(BaseModel):
+    novel_id: str
+    message: Optional[str] = None
+    volume_id: Optional[str] = None
+    chapter_id: Optional[str] = None
+    max_retries: int = 1
+    critic_threshold: int = 70
+    summarize_chapters: bool = True
+    overwrite_summaries: bool = False
+
+
+class AgentFlowResumeRequest(BaseModel):
+    run_id: str
+
+
+class AgentCancelRequest(BaseModel):
+    run_id: str
+
+
+def _ensure_agent_runs_table(db: Session) -> None:
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                id VARCHAR(36) PRIMARY KEY,
+                novel_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                agent VARCHAR(64) NOT NULL,
+                input TEXT,
+                input_text TEXT,
+                output TEXT,
+                status VARCHAR(20) NOT NULL,
+                score INTEGER,
+                issues TEXT,
+                created_at BIGINT NOT NULL
+            )
+            """
+        )
+    )
+    db.execute(text("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS input TEXT"))
+    db.execute(text("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS input_text TEXT"))
+    db.execute(text("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'completed'"))
+    db.execute(text("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS score INTEGER"))
+    db.execute(text("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS issues TEXT"))
+    db.commit()
+
+
+def _save_agent_run(db: Session, payload: Dict[str, Any]) -> None:
+    _ensure_agent_runs_table(db)
+    db.execute(
+        text(
+            """
+            INSERT INTO agent_runs (
+                id, novel_id, user_id, agent, input, input_text, output, status, score, issues, created_at
+            )
+            VALUES (
+                :id, :novel_id, :user_id, :agent, :input, :input_text, :output, :status, :score, :issues, :created_at
+            )
+            """
+        ),
+        payload,
+    )
+    db.commit()
+
+
+def _list_agent_runs(db: Session, novel_id: str, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    _ensure_agent_runs_table(db)
+    rows = db.execute(
+        text(
+            """
+            SELECT id,
+                   novel_id,
+                   user_id,
+                   agent,
+                   COALESCE(input, input_text) AS input,
+                   output,
+                   status,
+                   score,
+                   issues,
+                   created_at
+            FROM agent_runs
+            WHERE novel_id = :novel_id AND user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+            """
+        ),
+        {"novel_id": novel_id, "user_id": user_id, "limit": limit},
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def _ensure_agent_messages_table(db: Session) -> None:
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS agent_messages (
+                id VARCHAR(36) PRIMARY KEY,
+                run_id VARCHAR(36),
+                novel_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                role VARCHAR(20) NOT NULL,
+                agent VARCHAR(50),
+                content TEXT NOT NULL,
+                created_at BIGINT NOT NULL
+            )
+            """
+        )
+    )
+    db.commit()
+
+
+def _delete_agent_messages_for_run(db: Session, run_id: str, user_id: str) -> None:
+    _ensure_agent_messages_table(db)
+    db.execute(
+        text(
+            """
+            DELETE FROM agent_messages
+            WHERE run_id = :run_id AND user_id = :user_id
+            """
+        ),
+        {"run_id": run_id, "user_id": user_id},
+    )
+    db.commit()
+
+
+def _save_agent_message(
+    db: Session,
+    *,
+    run_id: Optional[str],
+    novel_id: str,
+    user_id: str,
+    role: str,
+    agent: Optional[str],
+    content: str,
+    created_at: Optional[int] = None,
+) -> None:
+    _ensure_agent_messages_table(db)
+    db.execute(
+        text(
+            """
+            INSERT INTO agent_messages (
+                id, run_id, novel_id, user_id, role, agent, content, created_at
+            )
+            VALUES (
+                :id, :run_id, :novel_id, :user_id, :role, :agent, :content, :created_at
+            )
+            """
+        ),
+        {
+            "id": generate_uuid(),
+            "run_id": run_id,
+            "novel_id": novel_id,
+            "user_id": user_id,
+            "role": role,
+            "agent": agent,
+            "content": content,
+            "created_at": created_at or int(time.time() * 1000),
+        },
+    )
+    db.commit()
+
+
+def _save_run_messages(
+    db: Session,
+    *,
+    run_id: str,
+    novel_id: str,
+    user_id: str,
+    agent: str,
+    user_text: str,
+    output_text: str,
+) -> None:
+    _delete_agent_messages_for_run(db, run_id, user_id)
+    _save_agent_message(
+        db,
+        run_id=run_id,
+        novel_id=novel_id,
+        user_id=user_id,
+        role="user",
+        agent=None,
+        content=user_text,
+    )
+    if output_text:
+        _save_agent_message(
+            db,
+            run_id=run_id,
+            novel_id=novel_id,
+            user_id=user_id,
+            role="agent",
+            agent=agent,
+            content=output_text,
+        )
+
+
+def _save_flow_messages(
+    db: Session,
+    *,
+    run_id: str,
+    novel_id: str,
+    user_id: str,
+    user_text: str,
+    director: str,
+    writer: str,
+    critic: str,
+    archivist: str,
+) -> None:
+    _delete_agent_messages_for_run(db, run_id, user_id)
+    _save_agent_message(
+        db,
+        run_id=run_id,
+        novel_id=novel_id,
+        user_id=user_id,
+        role="user",
+        agent=None,
+        content=user_text,
+    )
+    if director:
+        _save_agent_message(
+            db,
+            run_id=run_id,
+            novel_id=novel_id,
+            user_id=user_id,
+            role="agent",
+            agent="director",
+            content=director,
+        )
+    if writer:
+        _save_agent_message(
+            db,
+            run_id=run_id,
+            novel_id=novel_id,
+            user_id=user_id,
+            role="agent",
+            agent="writer",
+            content=writer,
+        )
+    if critic:
+        _save_agent_message(
+            db,
+            run_id=run_id,
+            novel_id=novel_id,
+            user_id=user_id,
+            role="agent",
+            agent="critic",
+            content=critic,
+        )
+    if archivist:
+        _save_agent_message(
+            db,
+            run_id=run_id,
+            novel_id=novel_id,
+            user_id=user_id,
+            role="agent",
+            agent="archivist",
+            content=archivist,
+        )
+
+
+def _list_agent_messages(
+    db: Session,
+    *,
+    novel_id: str,
+    user_id: str,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    _ensure_agent_messages_table(db)
+    rows = db.execute(
+        text(
+            """
+            SELECT id,
+                   run_id,
+                   novel_id,
+                   user_id,
+                   role,
+                   agent,
+                   content,
+                   created_at
+            FROM agent_messages
+            WHERE novel_id = :novel_id AND user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+            """
+        ),
+        {"novel_id": novel_id, "user_id": user_id, "limit": limit},
+    ).mappings().all()
+    items = [dict(row) for row in rows]
+    return list(reversed(items))
+
+
+def _delete_agent_messages_for_run_by_roles(
+    db: Session, run_id: str, user_id: str, roles: List[str]
+) -> None:
+    _ensure_agent_messages_table(db)
+    stmt = text(
+        """
+        DELETE FROM agent_messages
+        WHERE run_id = :run_id AND user_id = :user_id AND role IN :roles
+        """
+    ).bindparams(bindparam("roles", expanding=True))
+    db.execute(stmt, {"run_id": run_id, "user_id": user_id, "roles": roles})
+    db.commit()
+
+
+def _save_flow_messages_preserve_system(
+    db: Session,
+    *,
+    run_id: str,
+    novel_id: str,
+    user_id: str,
+    user_text: str,
+    director: str,
+    writer: str,
+    critic: str,
+    archivist: str,
+) -> None:
+    _delete_agent_messages_for_run_by_roles(db, run_id, user_id, ["user", "agent"])
+    _save_flow_messages(
+        db,
+        run_id=run_id,
+        novel_id=novel_id,
+        user_id=user_id,
+        user_text=user_text,
+        director=director,
+        writer=writer,
+        critic=critic,
+        archivist=archivist,
+    )
+
+
+def _build_flow_status_message(
+    stage: str,
+    status: str,
+    *,
+    attempt: Optional[int] = None,
+    issues: Optional[List[str]] = None,
+    chapter_id: Optional[str] = None,
+    error_message: Optional[str] = None,
+) -> str:
+    stage_map = {
+        "director": "导演",
+        "writer": "作家",
+        "critic": "评论",
+        "archivist": "存档",
+    }
+    stage_label = stage_map.get(stage, stage)
+    if status == "saved":
+        if chapter_id:
+            return f"已保存到章节: {chapter_id}"
+        return "已保存到章节"
+    if status == "cancelled":
+        return f"流程已取消（停在{stage_label}）"
+    if status == "done":
+        return "流程已完成"
+    if status == "error":
+        if error_message:
+            return f"流程出错: {error_message}"
+        return "流程出错"
+    base = f"步骤: {stage_label} {('开始' if status != 'retry' else '重试')}"
+    if attempt:
+        base += f" (第{attempt}次)"
+    if status == "retry" and issues:
+        base += f" | 问题: {issues}"
+    return base
+
+
+def _save_flow_status_message(
+    db: Session,
+    *,
+    run_id: str,
+    novel_id: str,
+    user_id: str,
+    stage: str,
+    status: str,
+    attempt: Optional[int] = None,
+    issues: Optional[List[str]] = None,
+    chapter_id: Optional[str] = None,
+    error_message: Optional[str] = None,
+) -> None:
+    content = _build_flow_status_message(
+        stage,
+        status,
+        attempt=attempt,
+        issues=issues,
+        chapter_id=chapter_id,
+        error_message=error_message,
+    )
+    _save_agent_message(
+        db,
+        run_id=run_id,
+        novel_id=novel_id,
+        user_id=user_id,
+        role="system",
+        agent="flow",
+        content=content,
+    )
+
+
+def _extract_volume_order(message: str) -> Optional[int]:
+    if not message:
+        return None
+    match = re.search(r"第\\s*(\\d{1,3})\\s*卷", message)
+    if not match:
+        return None
+    try:
+        value = int(match.group(1))
+        return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _extract_chapter_order(message: str) -> Optional[int]:
+    if not message:
+        return None
+    match = re.search(r"第\\s*(\\d{1,3})\\s*章", message)
+    if not match:
+        return None
+    try:
+        value = int(match.group(1))
+        return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _build_ai_prompt_hints(user_message: str, director: str) -> str:
+    hints = []
+    if user_message:
+        hints.append(f"用户需求: {user_message}")
+    if director:
+        hints.append(f"导演方案: {director}")
+    text = "\n".join(hints).strip()
+    if len(text) > 2000:
+        return text[:2000] + "..."
+    return text
+
+
+def _resolve_target_volume(
+    db: Session,
+    novel_id: str,
+    *,
+    volume_id: Optional[str],
+    message: str,
+) -> Optional[Volume]:
+    if volume_id:
+        return (
+            db.query(Volume)
+            .filter(Volume.id == volume_id, Volume.novel_id == novel_id)
+            .first()
+        )
+    volume_order = _extract_volume_order(message)
+    if volume_order is not None:
+        match = (
+            db.query(Volume)
+            .filter(Volume.novel_id == novel_id, Volume.volume_order == volume_order)
+            .first()
+        )
+        if match:
+            return match
+    return (
+        db.query(Volume)
+        .filter(Volume.novel_id == novel_id)
+        .order_by(Volume.volume_order.desc())
+        .first()
+    )
+
+
+def _resolve_target_chapter(
+    db: Session,
+    *,
+    novel_id: str,
+    volume: Volume,
+    chapter_id: Optional[str],
+    message: str,
+) -> Chapter:
+    if chapter_id:
+        chapter = (
+            db.query(Chapter)
+            .join(Volume, Chapter.volume_id == Volume.id)
+            .filter(Chapter.id == chapter_id, Volume.novel_id == novel_id)
+            .first()
+        )
+        if chapter:
+            return chapter
+    chapter_order = _extract_chapter_order(message)
+    if chapter_order is not None:
+        chapter = (
+            db.query(Chapter)
+            .filter(Chapter.volume_id == volume.id, Chapter.chapter_order == chapter_order)
+            .first()
+        )
+        if chapter:
+            return chapter
+        title = f"第{chapter_order}章"
+        new_chapter = Chapter(
+            id=generate_uuid(),
+            volume_id=volume.id,
+            title=title,
+            summary="",
+            content="",
+            ai_prompt_hints="",
+            chapter_order=chapter_order,
+            created_at=int(time.time() * 1000),
+            updated_at=int(time.time() * 1000),
+        )
+        db.add(new_chapter)
+        db.commit()
+        db.refresh(new_chapter)
+        return new_chapter
+    max_order = (
+        db.query(func.max(Chapter.chapter_order))
+        .filter(Chapter.volume_id == volume.id)
+        .scalar()
+        or 0
+    )
+    next_order = max_order + 1
+    title = f"第{next_order}章"
+    new_chapter = Chapter(
+        id=generate_uuid(),
+        volume_id=volume.id,
+        title=title,
+        summary="",
+        content="",
+        ai_prompt_hints="",
+        chapter_order=next_order,
+        created_at=int(time.time() * 1000),
+        updated_at=int(time.time() * 1000),
+    )
+    db.add(new_chapter)
+    db.commit()
+    db.refresh(new_chapter)
+    return new_chapter
+
+
+def _save_flow_output_to_chapter(
+    db: Session,
+    *,
+    novel_id: str,
+    volume_id: Optional[str],
+    chapter_id: Optional[str],
+    user_message: str,
+    director: str,
+    writer_output: str,
+) -> Optional[str]:
+    if not writer_output:
+        return None
+    volume = _resolve_target_volume(db, novel_id, volume_id=volume_id, message=user_message)
+    if not volume:
+        return None
+    chapter = _resolve_target_chapter(
+        db,
+        novel_id=novel_id,
+        volume=volume,
+        chapter_id=chapter_id,
+        message=user_message,
+    )
+    summary = ""
+    try:
+        summary = run_async(summarize_chapter_content(chapter.title, writer_output, 400))
+    except Exception:
+        summary = ""
+    chapter.content = writer_output
+    chapter.summary = summary or ""
+    chapter.ai_prompt_hints = _build_ai_prompt_hints(user_message, director)
+    chapter.updated_at = int(time.time() * 1000)
+    db.commit()
+    return chapter.id
+
+def _get_agent_run_by_id(db: Session, run_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    _ensure_agent_runs_table(db)
+    row = db.execute(
+        text(
+            """
+            SELECT id,
+                   novel_id,
+                   user_id,
+                   agent,
+                   COALESCE(input, input_text) AS input,
+                   output,
+                   status,
+                   score,
+                   issues,
+                   created_at
+            FROM agent_runs
+            WHERE id = :id AND user_id = :user_id
+            LIMIT 1
+            """
+        ),
+        {"id": run_id, "user_id": user_id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def _update_agent_run(
+    db: Session,
+    run_id: str,
+    *,
+    output: str,
+    status_text: str,
+    score: Optional[int],
+    issues: Optional[str],
+) -> None:
+    _ensure_agent_runs_table(db)
+    db.execute(
+        text(
+            """
+            UPDATE agent_runs
+            SET output = :output,
+                status = :status,
+                score = :score,
+                issues = :issues
+            WHERE id = :id
+            """
+        ),
+        {
+            "id": run_id,
+            "output": output,
+            "status": status_text,
+            "score": score,
+            "issues": issues,
+        },
+    )
+    db.commit()
+
+
+def _persist_agent_run(
+    db: Session,
+    *,
+    run_id: str,
+    novel_id: str,
+    user_id: str,
+    agent: str,
+    input_text: str,
+    output: str,
+    status_text: str,
+    score: Optional[int],
+    issues: Optional[str],
+) -> None:
+    existing = _get_agent_run_by_id(db, run_id, user_id)
+    if existing:
+        _update_agent_run(
+            db,
+            run_id,
+            output=output,
+            status_text=status_text,
+            score=score,
+            issues=issues,
+        )
+        return
+    _save_agent_run(
+        db,
+        {
+            "id": run_id,
+            "novel_id": novel_id,
+            "user_id": user_id,
+            "agent": agent,
+            "input": input_text,
+            "input_text": input_text,
+            "output": output,
+            "status": status_text,
+            "score": score,
+            "issues": issues,
+            "created_at": int(time.time() * 1000),
+        },
+    )
+
+
+def _build_agent_context(db: Session, novel_id: str) -> Dict[str, Any]:
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {}
+    volumes = (
+        db.query(Volume)
+        .filter(Volume.novel_id == novel_id)
+        .order_by(Volume.volume_order)
+        .all()
+    )
+    chapter_rows = (
+        db.query(Chapter, Volume)
+        .join(Volume, Chapter.volume_id == Volume.id)
+        .filter(Volume.novel_id == novel_id)
+        .order_by(Volume.volume_order, Chapter.chapter_order)
+        .all()
+    )
+    chapters = [
+        {
+            "title": chapter.title,
+            "summary": chapter.summary or "",
+            "content": chapter.content or "",
+            "ai_prompt_hints": chapter.ai_prompt_hints or "",
+            "chapter_order": chapter.chapter_order,
+            "volume_title": volume.title,
+            "volume_order": volume.volume_order,
+        }
+        for chapter, volume in chapter_rows
+    ]
+    characters = db.query(Character).filter(Character.novel_id == novel_id).all()
+    world_settings = db.query(WorldSetting).filter(WorldSetting.novel_id == novel_id).all()
+    timeline = (
+        db.query(TimelineEvent)
+        .filter(TimelineEvent.novel_id == novel_id)
+        .order_by(TimelineEvent.event_order)
+        .all()
+    )
+    foreshadowings = db.query(Foreshadowing).filter(Foreshadowing.novel_id == novel_id).all()
+    relations = []
+    if NEO4J_ENABLED:
+        relations = run_cypher(
+            """
+            MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(a:Character)
+            MATCH (n)-[:HAS_CHARACTER]->(b:Character)
+            MATCH (a)-[r:RELATES_TO]->(b)
+            RETURN a.name AS source,
+                   b.name AS target,
+                   r.type AS relation_type,
+                   r.description AS description
+            """,
+            {"novel_id": novel_id},
+        )
+    return {
+        "novel": {
+            "title": novel.title,
+            "genre": novel.genre,
+            "synopsis": novel.synopsis or "",
+            "full_outline": novel.full_outline or "",
+        },
+        "volumes": [
+            {
+                "title": v.title,
+                "summary": v.summary or "",
+                "outline": v.outline or "",
+                "volume_order": v.volume_order,
+            }
+            for v in volumes
+        ],
+        "chapters": chapters,
+        "characters": [
+            {
+                "name": c.name,
+                "age": c.age or "",
+                "role": c.role or "",
+                "personality": c.personality or "",
+                "background": c.background or "",
+                "goals": c.goals or "",
+            }
+            for c in characters
+        ],
+        "world_settings": [
+            {"title": w.title, "category": w.category, "description": w.description}
+            for w in world_settings
+        ],
+        "timeline": [
+            {"time": t.time, "event": t.event, "impact": t.impact or ""} for t in timeline
+        ],
+        "foreshadowings": [
+            {"content": f.content, "is_resolved": f.is_resolved} for f in foreshadowings
+        ],
+        "relations": relations or [],
+    }
+
+
+def _format_agent_context(context: Dict[str, Any]) -> str:
+    if not context:
+        return ""
+    def _truncate(value: str, limit: int) -> str:
+        text = (value or "").strip()
+        if not text:
+            return ""
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "..."
+
+    parts = []
+    novel = context.get("novel") or {}
+    parts.append(f"标题: {novel.get('title', '')}")
+    parts.append(f"类型: {novel.get('genre', '')}")
+    synopsis = novel.get("synopsis", "")
+    if synopsis:
+        parts.append(f"简介: {synopsis}")
+    full_outline = _truncate(novel.get("full_outline", ""), 4000)
+    if full_outline:
+        parts.append("全书大纲:")
+        parts.append(full_outline)
+    if context.get("volumes"):
+        parts.append("卷大纲:")
+        for v in context["volumes"][:20]:
+            title = v.get("title") or "未命名卷"
+            summary = _truncate(v.get("summary", ""), 400)
+            outline = _truncate(v.get("outline", ""), 800)
+            line = f"- {title}"
+            if summary:
+                line += f" | 简述: {summary}"
+            parts.append(line)
+            if outline:
+                parts.append(f"  详细: {outline}")
+    if context.get("characters"):
+        parts.append("角色:")
+        for c in context["characters"]:
+            parts.append(f"- {c.get('name')} | {c.get('role')} | {c.get('age')}")
+    if context.get("relations"):
+        parts.append("角色关系:")
+        for r in context["relations"]:
+            parts.append(f"- {r.get('source')} -> {r.get('target')} ({r.get('relation_type')})")
+    if context.get("world_settings"):
+        parts.append("世界观/规则:")
+        for w in context["world_settings"][:20]:
+            parts.append(f"- {w.get('title')}: {w.get('description')}")
+    if context.get("timeline"):
+        parts.append("时间线:")
+        for t in context["timeline"][:20]:
+            parts.append(f"- {t.get('time')}: {t.get('event')}")
+    if context.get("foreshadowings"):
+        parts.append("伏笔:")
+        for f in context["foreshadowings"][:30]:
+            status = "已回收" if str(f.get("is_resolved")).lower() == "true" else "未回收"
+            parts.append(f"- {f.get('content')} ({status})")
+    if context.get("chapters"):
+        parts.append("前文章节（最近5章）:")
+        recent = context["chapters"][-5:]
+        for ch in recent:
+            title = ch.get("title") or "未命名章节"
+            summary = _truncate(ch.get("summary", ""), 500)
+            content = _truncate(ch.get("content", ""), 1200)
+            hints = _truncate(ch.get("ai_prompt_hints", ""), 300)
+            parts.append(f"- {title}（{ch.get('volume_title', '')}）")
+            if summary:
+                parts.append(f"  摘要: {summary}")
+            if hints:
+                parts.append(f"  提示: {hints}")
+            if content:
+                parts.append(f"  正文摘录: {content}")
+    return "\n".join(parts)
+
+
+def _get_agent_system_hint(agent: str) -> str:
+    base_hint = (
+        "你是小说创作协作系统中的专业 Agent。\n"
+        "通用要求：\n"
+        "- 必须充分使用上下文中的全书大纲、卷大纲、角色、世界观、时间线、伏笔与前文章节。\n"
+        "- 与上下文冲突处要明确指出并给出修正建议。\n"
+        "- 不要凭空杜撰设定；缺信息时先提问或给出清晰的假设标记。\n"
+        "- 输出中文。\n"
+    )
+    agent = (agent or "").lower().strip()
+    if agent == "director":
+        return (
+            base_hint
+            + "你是【导演】Agent，负责给出可执行的创作方案。\n"
+            "输出要求：\n"
+            "1) 场景目标与冲突主线（2-4条）\n"
+            "2) 情节节奏与转折点（含关键节点顺序）\n"
+            "3) 角色动机与当场动作（按主要角色列出）\n"
+            "4) 伏笔埋设/回收建议（对应上下文）\n"
+            "5) 一段简短的写作指令（给作家用）\n"
+        )
+    if agent == "writer":
+        return (
+            base_hint
+            + "你是【作家】Agent，负责按方案写作正文。\n"
+            "输出要求：\n"
+            "- 严格遵循大纲、时间线和前文章节设定，保持人设与风格一致。\n"
+            "- 避免重复前文内容，推进剧情且带有情绪张力。\n"
+            "- 只输出正文，不要解释或列要点。\n"
+        )
+    if agent == "critic":
+        return (
+            base_hint
+            + "你是【评论】Agent，负责严格审稿与质量把关。\n"
+            "检查维度：逻辑漏洞、人物一致性、世界观冲突、时间线矛盾、叙事节奏、语言质量。\n"
+            "只返回 JSON："
+            "{\"score\":0-100,\"issues\":[\"问题:...; 建议:...\"],\"verdict\":\"pass\"|\"fail\"}。"
+        )
+    if agent == "archivist":
+        return (
+            base_hint
+            + "你是【存档】Agent，负责从文本中提取结构化信息。\n"
+            "只返回 JSON："
+            "{\"relations\":[{\"source_name\",\"target_name\",\"relation_type\",\"description\",\"weight\"}],"
+            "\"character_updates\":[{\"name\",\"age\"}],"
+            "\"timeline_events\":[{\"time\",\"event\",\"impact\"}],"
+            "\"world_settings\":[{\"title\",\"category\",\"description\"}],"
+            "\"foreshadowings\":[{\"content\"}]}"
+        )
+    return base_hint + "你是通用辅助 Agent。"
+
+
+def _build_agent_prompt(agent: str, message: str, context_text: str) -> str:
+    system_hint = _get_agent_system_hint(agent)
+    return "\n\n".join(
+        [
+            system_hint,
+            "Context:",
+            context_text or "(no context)",
+            "User request:",
+            message,
+        ]
+    )
+
+
+def _run_agent_llm(agent: str, message: str, context_text: str) -> Dict[str, Any]:
+    from google import genai
+    from core.config import GEMINI_API_KEY
+
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY 未配置")
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    prompt = _build_agent_prompt(agent, message, context_text)
+    response = client.models.generate_content(
+        model="gemini-3-pro-preview",
+        contents=prompt,
+        config={"temperature": 0.6, "max_output_tokens": 4096},
+    )
+    text_output = response.text if response.text else ""
+    return {"text": text_output}
+
+
+def _run_agent_llm_stream(agent: str, message: str, context_text: str) -> Iterable[str]:
+    from google import genai
+    from core.config import GEMINI_API_KEY
+
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY 未配置")
+
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    prompt = _build_agent_prompt(agent, message, context_text)
+    stream = client.models.generate_content_stream(
+        model="gemini-3-pro-preview",
+        contents=prompt,
+        config={"temperature": 0.6, "max_output_tokens": 4096},
+    )
+    for chunk in stream:
+        if chunk.text:
+            yield chunk.text
+
+
+def _sse_event(event: str, payload: Dict[str, Any]) -> str:
+    return f"event: {event}\n" f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@app.post("/api/agents/cancel")
+async def cancel_agent_run(
+    request: AgentCancelRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """取消正在运行的 Agent 流程"""
+    run = _get_agent_run_by_id(db, request.run_id, current_user.id)
+    if run:
+        if run.get("user_id") != current_user.id:
+            raise HTTPException(status_code=403, detail="无权限取消该流程")
+    else:
+        with _cancel_lock:
+            owner = _run_owners.get(request.run_id)
+        if owner and owner != current_user.id:
+            raise HTTPException(status_code=403, detail="无权限取消该流程")
+    _request_cancel(request.run_id)
+    return {"status": "ok", "run_id": request.run_id}
+
+
+@app.post("/api/agents/run")
+async def run_agent(
+    request: AgentRunRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """运行单个 Agent"""
+    require_novel_owner(db, request.novel_id, current_user.id)
+    context = _build_agent_context(db, request.novel_id) if request.use_context else {}
+    context_text = _format_agent_context(context)
+    result = _run_agent_llm(request.agent, request.message, context_text)
+    output_text = result.get("text", "")
+    score = None
+    issues = None
+    status_text = "completed"
+    archivist_counts = None
+    if (request.agent or "").lower().strip() == "archivist":
+        parsed = _parse_json_output(output_text)
+        if parsed:
+            archivist_counts = _apply_archivist_payload(db, request.novel_id, parsed)
+    if (request.agent or "").lower().strip() == "critic":
+        try:
+            critic_json = json.loads(output_text)
+            score = critic_json.get("score")
+            issues = json.dumps(critic_json.get("issues") or [], ensure_ascii=False)
+            status_text = critic_json.get("verdict") or "completed"
+        except Exception:
+            status_text = "completed"
+    run_id = generate_uuid()
+    _save_agent_run(
+        db,
+        {
+            "id": run_id,
+            "novel_id": request.novel_id,
+            "user_id": current_user.id,
+            "agent": request.agent,
+            "input": request.message,
+            "input_text": request.message,
+            "output": output_text,
+            "status": status_text,
+            "score": score,
+            "issues": issues,
+            "created_at": int(time.time() * 1000),
+        },
+    )
+    _save_run_messages(
+        db,
+        run_id=run_id,
+        novel_id=request.novel_id,
+        user_id=current_user.id,
+        agent=request.agent,
+        user_text=request.message,
+        output_text=output_text,
+    )
+    return {"run_id": run_id, "output": output_text, "score": score, "issues": issues, "archivist": archivist_counts}
+
+
+@app.post("/api/agents/run/stream")
+async def run_agent_stream(
+    request: AgentRunRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """运行单个 Agent（流式输出）"""
+    require_novel_owner(db, request.novel_id, current_user.id)
+    context = _build_agent_context(db, request.novel_id) if request.use_context else {}
+    context_text = _format_agent_context(context)
+
+    def event_generator():
+        run_id = generate_uuid()
+        _register_run_owner(run_id, current_user.id)
+        yield _sse_event("status", {"stage": request.agent or "agent", "status": "start", "run_id": run_id})
+        output_parts: List[str] = []
+        try:
+            for chunk in _run_agent_llm_stream(request.agent, request.message, context_text):
+                if _is_cancelled(run_id):
+                    output_text = "".join(output_parts)
+                    _persist_agent_run(
+                        db,
+                        run_id=run_id,
+                        novel_id=request.novel_id,
+                        user_id=current_user.id,
+                        agent=request.agent,
+                        input_text=request.message,
+                        output=output_text,
+                        status_text="cancelled",
+                        score=None,
+                        issues=None,
+                    )
+                    _save_run_messages(
+                        db,
+                        run_id=run_id,
+                        novel_id=request.novel_id,
+                        user_id=current_user.id,
+                        agent=request.agent,
+                        user_text=request.message,
+                        output_text=output_text,
+                    )
+                    yield _sse_event(
+                        "cancelled",
+                        {
+                            "run_id": run_id,
+                            "stage": request.agent,
+                        },
+                    )
+                    _clear_cancel(run_id)
+                    return
+                output_parts.append(chunk)
+                yield _sse_event("chunk", {"stage": request.agent, "text": chunk})
+
+            output_text = "".join(output_parts)
+            score = None
+            issues = None
+            status_text = "completed"
+            archivist_counts = None
+
+            if (request.agent or "").lower().strip() == "archivist":
+                parsed = _parse_json_output(output_text)
+                if parsed:
+                    archivist_counts = _apply_archivist_payload(db, request.novel_id, parsed)
+            if (request.agent or "").lower().strip() == "critic":
+                try:
+                    critic_json = json.loads(output_text)
+                    score = critic_json.get("score")
+                    issues = json.dumps(critic_json.get("issues") or [], ensure_ascii=False)
+                    status_text = critic_json.get("verdict") or "completed"
+                except Exception:
+                    status_text = "completed"
+
+            _persist_agent_run(
+                db,
+                run_id=run_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                agent=request.agent,
+                input_text=request.message,
+                output=output_text,
+                status_text=status_text,
+                score=score,
+                issues=issues,
+            )
+            _save_run_messages(
+                db,
+                run_id=run_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                agent=request.agent,
+                user_text=request.message,
+                output_text=output_text,
+            )
+
+            yield _sse_event(
+                "done",
+                {
+                    "run_id": run_id,
+                    "output": output_text,
+                    "score": score,
+                    "issues": issues,
+                    "archivist": archivist_counts,
+                },
+            )
+        except Exception as exc:
+            output_text = "".join(output_parts)
+            _persist_agent_run(
+                db,
+                run_id=run_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                agent=request.agent,
+                input_text=request.message,
+                output=output_text,
+                status_text="failed",
+                score=None,
+                issues=None,
+            )
+            _save_run_messages(
+                db,
+                run_id=run_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                agent=request.agent,
+                user_text=request.message,
+                output_text=output_text,
+            )
+            yield _sse_event("error", {"message": str(exc), "run_id": run_id, "stage": request.agent})
+        finally:
+            _clear_cancel(run_id)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream; charset=utf-8",
+    )
+
+
+@app.post("/api/agents/flow")
+async def run_agent_flow(
+    request: AgentFlowRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """运行多 Agent 工作流"""
+    require_novel_owner(db, request.novel_id, current_user.id)
+    context = _build_agent_context(db, request.novel_id)
+    context_text = _format_agent_context(context)
+    user_message = request.message or "Write the next scene."
+    director = _run_agent_llm("director", user_message, context_text).get("text", "")
+    writer_prompt = f"Director plan:\n{director}\n\nWrite the scene."
+    writer_output = ""
+    critic_output = ""
+    critic_score = 0
+    critic_issues: List[str] = []
+    retries = 0
+    max_retries = max(0, request.max_retries)
+    threshold = max(0, min(100, request.critic_threshold))
+    while retries <= max_retries:
+        writer_output = _run_agent_llm("writer", writer_prompt, context_text).get("text", "")
+        critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+        try:
+            critic_json = json.loads(critic_output)
+            critic_score = int(critic_json.get("score") or 0)
+            critic_issues = critic_json.get("issues") or []
+        except Exception:
+            critic_score = 0
+            critic_issues = ["critic_parse_failed"]
+        if critic_score >= threshold:
+            break
+        retries += 1
+        writer_prompt = f"Rewrite due to issues: {critic_issues}\n\nOriginal:\n{writer_output}"
+    archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
+    parsed_archivist = _parse_json_output(archivist_output)
+    if parsed_archivist:
+        _apply_archivist_payload(db, request.novel_id, parsed_archivist)
+    summary_count = 0
+    if request.summarize_chapters:
+        summary_count = _summarize_chapters(db, request.novel_id, request.overwrite_summaries)
+    flow_id = generate_uuid()
+    _save_agent_run(
+        db,
+        {
+            "id": flow_id,
+            "novel_id": request.novel_id,
+            "user_id": current_user.id,
+            "agent": "flow",
+            "input": user_message,
+            "input_text": user_message,
+            "output": json.dumps(
+                {
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "summaries": summary_count,
+                },
+                ensure_ascii=False,
+            ),
+            "status": "completed" if critic_score >= threshold else "needs_review",
+            "score": critic_score,
+            "issues": json.dumps(critic_issues, ensure_ascii=False),
+            "created_at": int(time.time() * 1000),
+        },
+    )
+    _save_flow_messages(
+        db,
+        run_id=flow_id,
+        novel_id=request.novel_id,
+        user_id=current_user.id,
+        user_text=user_message,
+        director=director,
+        writer=writer_output,
+        critic=critic_output,
+        archivist=archivist_output,
+    )
+    return {
+        "run_id": flow_id,
+        "director": director,
+        "writer": writer_output,
+        "critic": critic_output,
+        "archivist": archivist_output,
+        "score": critic_score,
+        "issues": critic_issues,
+        "summaries": summary_count,
+    }
+
+
+@app.post("/api/agents/flow/stream")
+async def run_agent_flow_stream(
+    request: AgentFlowRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """运行多 Agent 工作流（流式输出）"""
+    require_novel_owner(db, request.novel_id, current_user.id)
+    context = _build_agent_context(db, request.novel_id)
+    context_text = _format_agent_context(context)
+
+    def event_generator():
+        flow_id = generate_uuid()
+        _register_run_owner(flow_id, current_user.id)
+        user_message = request.message or "Write the next scene."
+        max_retries = max(0, request.max_retries)
+        threshold = max(0, min(100, request.critic_threshold))
+        stage_completed = "start"
+        director = ""
+        writer_output = ""
+        critic_output = ""
+        archivist_output = ""
+        critic_score = 0
+        critic_issues: List[str] = []
+        retries = 0
+        writer_prompt = ""
+        selected_volume_id = request.volume_id
+        selected_chapter_id = request.chapter_id
+
+        yield _sse_event("status", {"stage": "director", "status": "start", "run_id": flow_id})
+        _save_flow_status_message(
+            db,
+            run_id=flow_id,
+            novel_id=request.novel_id,
+            user_id=current_user.id,
+            stage="director",
+            status="start",
+        )
+        try:
+            if _is_cancelled(flow_id):
+                output_payload = json.dumps(
+                    {
+                        "stage": stage_completed,
+                        "user_message": user_message,
+                        "director": director,
+                        "writer": writer_output,
+                        "critic": critic_output,
+                        "archivist": archivist_output,
+                        "score": critic_score,
+                        "issues": critic_issues,
+                        "retries": retries,
+                        "max_retries": max_retries,
+                        "critic_threshold": threshold,
+                        "writer_prompt": writer_prompt,
+                        "summarize_chapters": request.summarize_chapters,
+                        "overwrite_summaries": request.overwrite_summaries,
+                    },
+                    ensure_ascii=False,
+                )
+                _persist_agent_run(
+                    db,
+                    run_id=flow_id,
+                    novel_id=request.novel_id,
+                    user_id=current_user.id,
+                    agent="flow",
+                    input_text=user_message,
+                    output=output_payload,
+                    status_text="cancelled",
+                    score=critic_score,
+                    issues=json.dumps(critic_issues, ensure_ascii=False),
+                )
+                _save_flow_messages_preserve_system(
+                    db,
+                    run_id=flow_id,
+                    novel_id=request.novel_id,
+                    user_id=current_user.id,
+                    user_text=user_message,
+                    director=director,
+                    writer=writer_output,
+                    critic=critic_output,
+                    archivist=archivist_output,
+                )
+                _save_flow_status_message(
+                    db,
+                    run_id=flow_id,
+                    novel_id=request.novel_id,
+                    user_id=current_user.id,
+                    stage=stage_completed,
+                    status="cancelled",
+                )
+                yield _sse_event("cancelled", {"run_id": flow_id, "stage": stage_completed})
+                _clear_cancel(flow_id)
+                return
+            director = _run_agent_llm("director", user_message, context_text).get("text", "")
+            stage_completed = "director"
+            yield _sse_event("stage_output", {"stage": "director", "text": director})
+
+            writer_prompt = f"Director plan:\n{director}\n\nWrite the scene."
+            while retries <= max_retries:
+                if _is_cancelled(flow_id):
+                    output_payload = json.dumps(
+                        {
+                            "stage": stage_completed,
+                            "user_message": user_message,
+                            "director": director,
+                            "writer": writer_output,
+                            "critic": critic_output,
+                            "archivist": archivist_output,
+                            "score": critic_score,
+                            "issues": critic_issues,
+                            "retries": retries,
+                            "max_retries": max_retries,
+                            "critic_threshold": threshold,
+                            "writer_prompt": writer_prompt,
+                            "summarize_chapters": request.summarize_chapters,
+                            "overwrite_summaries": request.overwrite_summaries,
+                        },
+                        ensure_ascii=False,
+                    )
+                    _persist_agent_run(
+                        db,
+                        run_id=flow_id,
+                        novel_id=request.novel_id,
+                        user_id=current_user.id,
+                        agent="flow",
+                        input_text=user_message,
+                        output=output_payload,
+                        status_text="cancelled",
+                        score=critic_score,
+                        issues=json.dumps(critic_issues, ensure_ascii=False),
+                    )
+                    _save_flow_messages_preserve_system(
+                        db,
+                        run_id=flow_id,
+                        novel_id=request.novel_id,
+                        user_id=current_user.id,
+                        user_text=user_message,
+                        director=director,
+                        writer=writer_output,
+                        critic=critic_output,
+                        archivist=archivist_output,
+                    )
+                    _save_flow_status_message(
+                        db,
+                        run_id=flow_id,
+                        novel_id=request.novel_id,
+                        user_id=current_user.id,
+                        stage=stage_completed,
+                        status="cancelled",
+                    )
+                    yield _sse_event("cancelled", {"run_id": flow_id, "stage": stage_completed})
+                    _clear_cancel(flow_id)
+                    return
+                yield _sse_event(
+                    "status",
+                    {"stage": "writer", "status": "start", "attempt": retries + 1, "run_id": flow_id},
+                )
+                _save_flow_status_message(
+                    db,
+                    run_id=flow_id,
+                    novel_id=request.novel_id,
+                    user_id=current_user.id,
+                    stage="writer",
+                    status="start",
+                    attempt=retries + 1,
+                )
+                writer_chunks: List[str] = []
+                for chunk in _run_agent_llm_stream("writer", writer_prompt, context_text):
+                    if _is_cancelled(flow_id):
+                        output_payload = json.dumps(
+                            {
+                                "stage": stage_completed,
+                                "user_message": user_message,
+                                "director": director,
+                                "writer": writer_output,
+                                "critic": critic_output,
+                                "archivist": archivist_output,
+                                "score": critic_score,
+                                "issues": critic_issues,
+                                "retries": retries,
+                                "max_retries": max_retries,
+                                "critic_threshold": threshold,
+                                "writer_prompt": writer_prompt,
+                                "summarize_chapters": request.summarize_chapters,
+                                "overwrite_summaries": request.overwrite_summaries,
+                            },
+                            ensure_ascii=False,
+                        )
+                        _persist_agent_run(
+                            db,
+                            run_id=flow_id,
+                            novel_id=request.novel_id,
+                            user_id=current_user.id,
+                            agent="flow",
+                            input_text=user_message,
+                            output=output_payload,
+                            status_text="cancelled",
+                            score=critic_score,
+                            issues=json.dumps(critic_issues, ensure_ascii=False),
+                        )
+                        _save_flow_messages_preserve_system(
+                            db,
+                            run_id=flow_id,
+                            novel_id=request.novel_id,
+                            user_id=current_user.id,
+                            user_text=user_message,
+                            director=director,
+                            writer=writer_output,
+                            critic=critic_output,
+                            archivist=archivist_output,
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=flow_id,
+                            novel_id=request.novel_id,
+                            user_id=current_user.id,
+                            stage=stage_completed,
+                            status="cancelled",
+                        )
+                        yield _sse_event("cancelled", {"run_id": flow_id, "stage": stage_completed})
+                        _clear_cancel(flow_id)
+                        return
+                    writer_chunks.append(chunk)
+                    yield _sse_event("chunk", {"stage": "writer", "text": chunk})
+                writer_output = "".join(writer_chunks)
+                stage_completed = "writer"
+                yield _sse_event("stage_output", {"stage": "writer", "text": writer_output})
+
+                yield _sse_event(
+                    "status",
+                    {"stage": "critic", "status": "start", "attempt": retries + 1, "run_id": flow_id},
+                )
+                _save_flow_status_message(
+                    db,
+                    run_id=flow_id,
+                    novel_id=request.novel_id,
+                    user_id=current_user.id,
+                    stage="critic",
+                    status="start",
+                    attempt=retries + 1,
+                )
+                critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                stage_completed = "critic"
+                yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
+                try:
+                    critic_json = json.loads(critic_output)
+                    critic_score = int(critic_json.get("score") or 0)
+                    critic_issues = critic_json.get("issues") or []
+                except Exception:
+                    critic_score = 0
+                    critic_issues = ["critic_parse_failed"]
+
+                if critic_score >= threshold:
+                    break
+                retries += 1
+                writer_prompt = f"Rewrite due to issues: {critic_issues}\n\nOriginal:\n{writer_output}"
+                yield _sse_event(
+                    "status",
+                    {
+                        "stage": "writer",
+                        "status": "retry",
+                        "attempt": retries + 1,
+                        "issues": critic_issues,
+                        "run_id": flow_id,
+                    },
+                )
+                _save_flow_status_message(
+                    db,
+                    run_id=flow_id,
+                    novel_id=request.novel_id,
+                    user_id=current_user.id,
+                    stage="writer",
+                    status="retry",
+                    attempt=retries + 1,
+                    issues=critic_issues,
+                )
+
+            saved_chapter_id = _save_flow_output_to_chapter(
+                db,
+                novel_id=request.novel_id,
+                volume_id=selected_volume_id,
+                chapter_id=selected_chapter_id,
+                user_message=user_message,
+                director=director,
+                writer_output=writer_output,
+            )
+            if saved_chapter_id:
+                yield _sse_event(
+                    "status",
+                    {"stage": "writer", "status": "saved", "chapter_id": saved_chapter_id, "run_id": flow_id},
+                )
+                _save_flow_status_message(
+                    db,
+                    run_id=flow_id,
+                    novel_id=request.novel_id,
+                    user_id=current_user.id,
+                    stage="writer",
+                    status="saved",
+                    chapter_id=saved_chapter_id,
+                )
+            yield _sse_event("status", {"stage": "archivist", "status": "start", "run_id": flow_id})
+            _save_flow_status_message(
+                db,
+                run_id=flow_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                stage="archivist",
+                status="start",
+            )
+            archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
+            stage_completed = "archivist"
+            yield _sse_event("stage_output", {"stage": "archivist", "text": archivist_output})
+            parsed_archivist = _parse_json_output(archivist_output)
+            if parsed_archivist:
+                _apply_archivist_payload(db, request.novel_id, parsed_archivist)
+
+            summary_count = 0
+            if request.summarize_chapters:
+                summary_count = _summarize_chapters(db, request.novel_id, request.overwrite_summaries)
+
+            output_payload = json.dumps(
+                {
+                    "stage": "done",
+                    "user_message": user_message,
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "summaries": summary_count,
+                    "retries": retries,
+                    "max_retries": max_retries,
+                    "critic_threshold": threshold,
+                    "writer_prompt": writer_prompt,
+                    "volume_id": selected_volume_id,
+                    "chapter_id": selected_chapter_id or saved_chapter_id,
+                    "summarize_chapters": request.summarize_chapters,
+                    "overwrite_summaries": request.overwrite_summaries,
+                },
+                ensure_ascii=False,
+            )
+            status_text = "completed" if critic_score >= threshold else "needs_review"
+            _persist_agent_run(
+                db,
+                run_id=flow_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                agent="flow",
+                input_text=user_message,
+                output=output_payload,
+                status_text=status_text,
+                score=critic_score,
+                issues=json.dumps(critic_issues, ensure_ascii=False),
+            )
+            _save_flow_messages_preserve_system(
+                db,
+                run_id=flow_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                user_text=user_message,
+                director=director,
+                writer=writer_output,
+                critic=critic_output,
+                archivist=archivist_output,
+            )
+            _save_flow_status_message(
+                db,
+                run_id=flow_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                stage="flow",
+                status="done",
+            )
+
+            yield _sse_event(
+                "done",
+                {
+                    "run_id": flow_id,
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "summaries": summary_count,
+                },
+            )
+        except Exception as exc:
+            output_payload = json.dumps(
+                {
+                    "stage": stage_completed,
+                    "user_message": user_message,
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "retries": retries,
+                    "max_retries": max_retries,
+                    "critic_threshold": threshold,
+                    "writer_prompt": writer_prompt,
+                    "summarize_chapters": request.summarize_chapters,
+                    "overwrite_summaries": request.overwrite_summaries,
+                },
+                ensure_ascii=False,
+            )
+            _persist_agent_run(
+                db,
+                run_id=flow_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                agent="flow",
+                input_text=user_message,
+                output=output_payload,
+                status_text="failed",
+                score=critic_score,
+                issues=json.dumps(critic_issues, ensure_ascii=False),
+            )
+            _save_flow_messages_preserve_system(
+                db,
+                run_id=flow_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                user_text=user_message,
+                director=director,
+                writer=writer_output,
+                critic=critic_output,
+                archivist=archivist_output,
+            )
+            _save_flow_status_message(
+                db,
+                run_id=flow_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                stage=stage_completed,
+                status="error",
+                error_message=str(exc),
+            )
+            yield _sse_event(
+                "error",
+                {
+                    "message": str(exc),
+                    "run_id": flow_id,
+                    "stage": stage_completed,
+                },
+            )
+        finally:
+            _clear_cancel(flow_id)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream; charset=utf-8",
+    )
+
+
+@app.post("/api/agents/flow/resume/stream")
+async def run_agent_flow_resume_stream(
+    request: AgentFlowResumeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """恢复多 Agent 工作流（流式输出）"""
+    run = _get_agent_run_by_id(db, request.run_id, current_user.id)
+    if not run:
+        raise HTTPException(status_code=404, detail="未找到可恢复的流程")
+    if run.get("agent") != "flow":
+        raise HTTPException(status_code=400, detail="该运行记录不是流程类型")
+
+    novel_id = run.get("novel_id")
+    if not novel_id:
+        raise HTTPException(status_code=400, detail="运行记录缺少 novel_id")
+    require_novel_owner(db, novel_id, current_user.id)
+
+    try:
+        state = json.loads(run.get("output") or "{}")
+    except Exception:
+        state = {}
+
+    if run.get("status") == "completed" or state.get("stage") == "done":
+        raise HTTPException(status_code=400, detail="流程已完成，无法恢复")
+
+    context = _build_agent_context(db, novel_id)
+    context_text = _format_agent_context(context)
+
+    def event_generator():
+        stage_completed = state.get("stage") or "start"
+        user_message = state.get("user_message") or "Write the next scene."
+        max_retries = int(state.get("max_retries") or 1)
+        threshold = int(state.get("critic_threshold") or 70)
+        retries = int(state.get("retries") or 0)
+        director = state.get("director") or ""
+        writer_output = state.get("writer") or ""
+        critic_output = state.get("critic") or ""
+        archivist_output = state.get("archivist") or ""
+        critic_score = int(state.get("score") or 0)
+        critic_issues = state.get("issues") or []
+        if isinstance(critic_issues, str):
+            try:
+                critic_issues = json.loads(critic_issues)
+            except Exception:
+                critic_issues = [critic_issues]
+        writer_prompt = state.get("writer_prompt") or ""
+        summarize_chapters = bool(state.get("summarize_chapters", True))
+        overwrite_summaries = bool(state.get("overwrite_summaries", False))
+        selected_volume_id = state.get("volume_id")
+        selected_chapter_id = state.get("chapter_id")
+
+        _register_run_owner(request.run_id, current_user.id)
+        try:
+            if _is_cancelled(request.run_id):
+                output_payload = json.dumps(
+                    {
+                        "stage": stage_completed,
+                        "user_message": user_message,
+                        "director": director,
+                        "writer": writer_output,
+                        "critic": critic_output,
+                        "archivist": archivist_output,
+                        "score": critic_score,
+                        "issues": critic_issues,
+                        "retries": retries,
+                        "max_retries": max_retries,
+                        "critic_threshold": threshold,
+                        "writer_prompt": writer_prompt,
+                        "summarize_chapters": summarize_chapters,
+                        "overwrite_summaries": overwrite_summaries,
+                    },
+                    ensure_ascii=False,
+                )
+                _persist_agent_run(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    agent="flow",
+                    input_text=user_message,
+                    output=output_payload,
+                    status_text="cancelled",
+                    score=critic_score,
+                    issues=json.dumps(critic_issues, ensure_ascii=False),
+                )
+                _save_flow_messages_preserve_system(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    user_text=user_message,
+                    director=director,
+                    writer=writer_output,
+                    critic=critic_output,
+                    archivist=archivist_output,
+                )
+                _save_flow_status_message(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    stage=stage_completed,
+                    status="cancelled",
+                )
+                yield _sse_event("cancelled", {"run_id": request.run_id, "stage": stage_completed})
+                _clear_cancel(request.run_id)
+                return
+            if stage_completed in ("start", ""):
+                yield _sse_event("status", {"stage": "director", "status": "start", "run_id": request.run_id})
+                _save_flow_status_message(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    stage="director",
+                    status="start",
+                )
+                director = _run_agent_llm("director", user_message, context_text).get("text", "")
+                stage_completed = "director"
+                yield _sse_event("stage_output", {"stage": "director", "text": director})
+
+            if not writer_prompt:
+                writer_prompt = f"Director plan:\n{director}\n\nWrite the scene."
+
+            if stage_completed == "director":
+                writer_output = ""
+
+            if stage_completed in ("director", "start"):
+                retries = 0
+                while retries <= max_retries:
+                    if _is_cancelled(request.run_id):
+                        output_payload = json.dumps(
+                            {
+                                "stage": stage_completed,
+                                "user_message": user_message,
+                                "director": director,
+                                "writer": writer_output,
+                                "critic": critic_output,
+                                "archivist": archivist_output,
+                                "score": critic_score,
+                                "issues": critic_issues,
+                                "retries": retries,
+                                "max_retries": max_retries,
+                                "critic_threshold": threshold,
+                                "writer_prompt": writer_prompt,
+                                "summarize_chapters": summarize_chapters,
+                                "overwrite_summaries": overwrite_summaries,
+                            },
+                            ensure_ascii=False,
+                        )
+                        _persist_agent_run(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            agent="flow",
+                            input_text=user_message,
+                            output=output_payload,
+                            status_text="cancelled",
+                            score=critic_score,
+                            issues=json.dumps(critic_issues, ensure_ascii=False),
+                        )
+                        _save_flow_messages_preserve_system(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            user_text=user_message,
+                            director=director,
+                            writer=writer_output,
+                            critic=critic_output,
+                            archivist=archivist_output,
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            stage=stage_completed,
+                            status="cancelled",
+                        )
+                        yield _sse_event("cancelled", {"run_id": request.run_id, "stage": stage_completed})
+                        _clear_cancel(request.run_id)
+                        return
+                    yield _sse_event(
+                        "status",
+                        {"stage": "writer", "status": "start", "attempt": retries + 1, "run_id": request.run_id},
+                    )
+                    _save_flow_status_message(
+                        db,
+                        run_id=request.run_id,
+                        novel_id=novel_id,
+                        user_id=current_user.id,
+                        stage="writer",
+                        status="start",
+                        attempt=retries + 1,
+                    )
+                    writer_chunks: List[str] = []
+                    for chunk in _run_agent_llm_stream("writer", writer_prompt, context_text):
+                        if _is_cancelled(request.run_id):
+                            output_payload = json.dumps(
+                                {
+                                    "stage": stage_completed,
+                                    "user_message": user_message,
+                                    "director": director,
+                                    "writer": writer_output,
+                                    "critic": critic_output,
+                                    "archivist": archivist_output,
+                                    "score": critic_score,
+                                    "issues": critic_issues,
+                                    "retries": retries,
+                                    "max_retries": max_retries,
+                                    "critic_threshold": threshold,
+                                    "writer_prompt": writer_prompt,
+                                    "summarize_chapters": summarize_chapters,
+                                    "overwrite_summaries": overwrite_summaries,
+                                },
+                                ensure_ascii=False,
+                            )
+                            _persist_agent_run(
+                                db,
+                                run_id=request.run_id,
+                                novel_id=novel_id,
+                                user_id=current_user.id,
+                                agent="flow",
+                                input_text=user_message,
+                                output=output_payload,
+                                status_text="cancelled",
+                                score=critic_score,
+                                issues=json.dumps(critic_issues, ensure_ascii=False),
+                            )
+                            _save_flow_messages_preserve_system(
+                                db,
+                                run_id=request.run_id,
+                                novel_id=novel_id,
+                                user_id=current_user.id,
+                                user_text=user_message,
+                                director=director,
+                                writer=writer_output,
+                                critic=critic_output,
+                                archivist=archivist_output,
+                            )
+                            _save_flow_status_message(
+                                db,
+                                run_id=request.run_id,
+                                novel_id=novel_id,
+                                user_id=current_user.id,
+                                stage=stage_completed,
+                                status="cancelled",
+                            )
+                            yield _sse_event("cancelled", {"run_id": request.run_id, "stage": stage_completed})
+                            _clear_cancel(request.run_id)
+                            return
+                        writer_chunks.append(chunk)
+                        yield _sse_event("chunk", {"stage": "writer", "text": chunk})
+                    writer_output = "".join(writer_chunks)
+                    stage_completed = "writer"
+                    yield _sse_event("stage_output", {"stage": "writer", "text": writer_output})
+
+                    yield _sse_event(
+                        "status",
+                        {"stage": "critic", "status": "start", "attempt": retries + 1, "run_id": request.run_id},
+                    )
+                    _save_flow_status_message(
+                        db,
+                        run_id=request.run_id,
+                        novel_id=novel_id,
+                        user_id=current_user.id,
+                        stage="critic",
+                        status="start",
+                        attempt=retries + 1,
+                    )
+                    critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                    stage_completed = "critic"
+                    yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
+                    try:
+                        critic_json = json.loads(critic_output)
+                        critic_score = int(critic_json.get("score") or 0)
+                        critic_issues = critic_json.get("issues") or []
+                    except Exception:
+                        critic_score = 0
+                        critic_issues = ["critic_parse_failed"]
+
+                    if critic_score >= threshold:
+                        break
+                    retries += 1
+                    writer_prompt = f"Rewrite due to issues: {critic_issues}\n\nOriginal:\n{writer_output}"
+                    yield _sse_event(
+                        "status",
+                        {
+                            "stage": "writer",
+                            "status": "retry",
+                            "attempt": retries + 1,
+                            "issues": critic_issues,
+                            "run_id": request.run_id,
+                        },
+                    )
+                    _save_flow_status_message(
+                        db,
+                        run_id=request.run_id,
+                        novel_id=novel_id,
+                        user_id=current_user.id,
+                        stage="writer",
+                        status="retry",
+                        attempt=retries + 1,
+                        issues=critic_issues,
+                    )
+            elif stage_completed == "writer":
+                yield _sse_event(
+                    "status",
+                    {"stage": "critic", "status": "start", "attempt": retries + 1, "run_id": request.run_id},
+                )
+                _save_flow_status_message(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    stage="critic",
+                    status="start",
+                    attempt=retries + 1,
+                )
+                critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                stage_completed = "critic"
+                yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
+                try:
+                    critic_json = json.loads(critic_output)
+                    critic_score = int(critic_json.get("score") or 0)
+                    critic_issues = critic_json.get("issues") or []
+                except Exception:
+                    critic_score = 0
+                    critic_issues = ["critic_parse_failed"]
+                if critic_score < threshold and retries < max_retries:
+                    retries += 1
+                    writer_prompt = f"Rewrite due to issues: {critic_issues}\n\nOriginal:\n{writer_output}"
+                    stage_completed = "director"
+                    yield _sse_event(
+                        "status",
+                        {
+                            "stage": "writer",
+                            "status": "retry",
+                            "attempt": retries + 1,
+                            "issues": critic_issues,
+                            "run_id": request.run_id,
+                        },
+                    )
+                    _save_flow_status_message(
+                        db,
+                        run_id=request.run_id,
+                        novel_id=novel_id,
+                        user_id=current_user.id,
+                        stage="writer",
+                        status="retry",
+                        attempt=retries + 1,
+                        issues=critic_issues,
+                    )
+                    while retries <= max_retries:
+                        yield _sse_event(
+                            "status",
+                            {"stage": "writer", "status": "start", "attempt": retries + 1, "run_id": request.run_id},
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            stage="writer",
+                            status="start",
+                            attempt=retries + 1,
+                        )
+                        writer_chunks: List[str] = []
+                        for chunk in _run_agent_llm_stream("writer", writer_prompt, context_text):
+                            writer_chunks.append(chunk)
+                            yield _sse_event("chunk", {"stage": "writer", "text": chunk})
+                        writer_output = "".join(writer_chunks)
+                        stage_completed = "writer"
+                        yield _sse_event("stage_output", {"stage": "writer", "text": writer_output})
+
+                        yield _sse_event(
+                            "status",
+                            {"stage": "critic", "status": "start", "attempt": retries + 1, "run_id": request.run_id},
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            stage="critic",
+                            status="start",
+                            attempt=retries + 1,
+                        )
+                        critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                        stage_completed = "critic"
+                        yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
+                        try:
+                            critic_json = json.loads(critic_output)
+                            critic_score = int(critic_json.get("score") or 0)
+                            critic_issues = critic_json.get("issues") or []
+                        except Exception:
+                            critic_score = 0
+                            critic_issues = ["critic_parse_failed"]
+
+                        if critic_score >= threshold:
+                            break
+                        retries += 1
+                        writer_prompt = f"Rewrite due to issues: {critic_issues}\n\nOriginal:\n{writer_output}"
+                        yield _sse_event(
+                            "status",
+                            {
+                                "stage": "writer",
+                                "status": "retry",
+                                "attempt": retries + 1,
+                                "issues": critic_issues,
+                                "run_id": request.run_id,
+                            },
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            stage="writer",
+                            status="retry",
+                            attempt=retries + 1,
+                            issues=critic_issues,
+                        )
+            elif stage_completed == "critic":
+                if critic_score < threshold and retries < max_retries:
+                    retries += 1
+                    writer_prompt = f"Rewrite due to issues: {critic_issues}\n\nOriginal:\n{writer_output}"
+                    while retries <= max_retries:
+                        yield _sse_event(
+                            "status",
+                            {"stage": "writer", "status": "start", "attempt": retries + 1, "run_id": request.run_id},
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            stage="writer",
+                            status="start",
+                            attempt=retries + 1,
+                        )
+                        writer_chunks: List[str] = []
+                        for chunk in _run_agent_llm_stream("writer", writer_prompt, context_text):
+                            writer_chunks.append(chunk)
+                            yield _sse_event("chunk", {"stage": "writer", "text": chunk})
+                        writer_output = "".join(writer_chunks)
+                        stage_completed = "writer"
+                        yield _sse_event("stage_output", {"stage": "writer", "text": writer_output})
+
+                        yield _sse_event(
+                            "status",
+                            {"stage": "critic", "status": "start", "attempt": retries + 1, "run_id": request.run_id},
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            stage="critic",
+                            status="start",
+                            attempt=retries + 1,
+                        )
+                        critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                        stage_completed = "critic"
+                        yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
+                        try:
+                            critic_json = json.loads(critic_output)
+                            critic_score = int(critic_json.get("score") or 0)
+                            critic_issues = critic_json.get("issues") or []
+                        except Exception:
+                            critic_score = 0
+                            critic_issues = ["critic_parse_failed"]
+
+                        if critic_score >= threshold:
+                            break
+                        retries += 1
+                        writer_prompt = f"Rewrite due to issues: {critic_issues}\n\nOriginal:\n{writer_output}"
+                        yield _sse_event(
+                            "status",
+                            {
+                                "stage": "writer",
+                                "status": "retry",
+                                "attempt": retries + 1,
+                                "issues": critic_issues,
+                                "run_id": request.run_id,
+                            },
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            stage="writer",
+                            status="retry",
+                            attempt=retries + 1,
+                            issues=critic_issues,
+                        )
+
+        if stage_completed in ("writer", "critic"):
+            saved_chapter_id = _save_flow_output_to_chapter(
+                db,
+                novel_id=novel_id,
+                volume_id=selected_volume_id,
+                chapter_id=selected_chapter_id,
+                user_message=user_message,
+                director=director,
+                writer_output=writer_output,
+            )
+            if saved_chapter_id:
+                yield _sse_event(
+                    "status",
+                    {
+                        "stage": "writer",
+                        "status": "saved",
+                        "chapter_id": saved_chapter_id,
+                        "run_id": request.run_id,
+                    },
+                )
+                _save_flow_status_message(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    stage="writer",
+                    status="saved",
+                    chapter_id=saved_chapter_id,
+                )
+                if _is_cancelled(request.run_id):
+                    output_payload = json.dumps(
+                        {
+                            "stage": stage_completed,
+                            "user_message": user_message,
+                            "director": director,
+                            "writer": writer_output,
+                            "critic": critic_output,
+                            "archivist": archivist_output,
+                            "score": critic_score,
+                            "issues": critic_issues,
+                            "retries": retries,
+                            "max_retries": max_retries,
+                            "critic_threshold": threshold,
+                            "writer_prompt": writer_prompt,
+                            "summarize_chapters": summarize_chapters,
+                            "overwrite_summaries": overwrite_summaries,
+                        },
+                        ensure_ascii=False,
+                    )
+                    _persist_agent_run(
+                        db,
+                        run_id=request.run_id,
+                        novel_id=novel_id,
+                        user_id=current_user.id,
+                        agent="flow",
+                        input_text=user_message,
+                        output=output_payload,
+                        status_text="cancelled",
+                        score=critic_score,
+                        issues=json.dumps(critic_issues, ensure_ascii=False),
+                    )
+                    _save_flow_messages_preserve_system(
+                        db,
+                        run_id=request.run_id,
+                        novel_id=novel_id,
+                        user_id=current_user.id,
+                        user_text=user_message,
+                        director=director,
+                        writer=writer_output,
+                        critic=critic_output,
+                        archivist=archivist_output,
+                    )
+                    _save_flow_status_message(
+                        db,
+                        run_id=request.run_id,
+                        novel_id=novel_id,
+                        user_id=current_user.id,
+                        stage=stage_completed,
+                        status="cancelled",
+                    )
+                    yield _sse_event("cancelled", {"run_id": request.run_id, "stage": stage_completed})
+                    _clear_cancel(request.run_id)
+                    return
+                yield _sse_event("status", {"stage": "archivist", "status": "start", "run_id": request.run_id})
+                _save_flow_status_message(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    stage="archivist",
+                    status="start",
+                )
+                archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
+                stage_completed = "archivist"
+                yield _sse_event("stage_output", {"stage": "archivist", "text": archivist_output})
+                parsed_archivist = _parse_json_output(archivist_output)
+                if parsed_archivist:
+                    _apply_archivist_payload(db, novel_id, parsed_archivist)
+
+            summary_count = 0
+            if summarize_chapters:
+                summary_count = _summarize_chapters(db, novel_id, overwrite_summaries)
+
+            output_payload = json.dumps(
+                {
+                    "stage": "done",
+                    "user_message": user_message,
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "summaries": summary_count,
+                    "retries": retries,
+                    "max_retries": max_retries,
+                    "critic_threshold": threshold,
+                    "writer_prompt": writer_prompt,
+                    "volume_id": selected_volume_id,
+                    "chapter_id": selected_chapter_id or saved_chapter_id,
+                    "summarize_chapters": summarize_chapters,
+                    "overwrite_summaries": overwrite_summaries,
+                },
+                ensure_ascii=False,
+            )
+            status_text = "completed" if critic_score >= threshold else "needs_review"
+            _persist_agent_run(
+                db,
+                run_id=request.run_id,
+                novel_id=novel_id,
+                user_id=current_user.id,
+                agent="flow",
+                input_text=user_message,
+                output=output_payload,
+                status_text=status_text,
+                score=critic_score,
+                issues=json.dumps(critic_issues, ensure_ascii=False),
+            )
+            _save_flow_messages_preserve_system(
+                db,
+                run_id=request.run_id,
+                novel_id=novel_id,
+                user_id=current_user.id,
+                user_text=user_message,
+                director=director,
+                writer=writer_output,
+                critic=critic_output,
+                archivist=archivist_output,
+            )
+            _save_flow_status_message(
+                db,
+                run_id=request.run_id,
+                novel_id=novel_id,
+                user_id=current_user.id,
+                stage="flow",
+                status="done",
+            )
+            yield _sse_event(
+                "done",
+                {
+                    "run_id": request.run_id,
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "summaries": summary_count,
+                },
+            )
+        except Exception as exc:
+            output_payload = json.dumps(
+                {
+                    "stage": stage_completed,
+                    "user_message": user_message,
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "retries": retries,
+                    "max_retries": max_retries,
+                    "critic_threshold": threshold,
+                    "writer_prompt": writer_prompt,
+                    "summarize_chapters": summarize_chapters,
+                    "overwrite_summaries": overwrite_summaries,
+                },
+                ensure_ascii=False,
+            )
+            _persist_agent_run(
+                db,
+                run_id=request.run_id,
+                novel_id=novel_id,
+                user_id=current_user.id,
+                agent="flow",
+                input_text=user_message,
+                output=output_payload,
+                status_text="failed",
+                score=critic_score,
+                issues=json.dumps(critic_issues, ensure_ascii=False),
+            )
+            _save_flow_messages_preserve_system(
+                db,
+                run_id=request.run_id,
+                novel_id=novel_id,
+                user_id=current_user.id,
+                user_text=user_message,
+                director=director,
+                writer=writer_output,
+                critic=critic_output,
+                archivist=archivist_output,
+            )
+            _save_flow_status_message(
+                db,
+                run_id=request.run_id,
+                novel_id=novel_id,
+                user_id=current_user.id,
+                stage=stage_completed,
+                status="error",
+                error_message=str(exc),
+            )
+            yield _sse_event(
+                "error",
+                {
+                    "message": str(exc),
+                    "run_id": request.run_id,
+                    "stage": stage_completed,
+                },
+            )
+        finally:
+            _clear_cancel(request.run_id)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream; charset=utf-8",
+    )
+
+@app.get("/api/agents/history")
+async def list_agent_history(
+    novel_id: str,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """获取 Agent 运行历史"""
+    require_novel_owner(db, novel_id, current_user.id)
+    items = _list_agent_runs(db, novel_id, current_user.id, limit)
+    return {"items": items}
+
+
+@app.get("/api/agents/chat")
+async def list_agent_chat(
+    novel_id: str,
+    limit: int = 200,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """获取 Agent 对话记录"""
+    require_novel_owner(db, novel_id, current_user.id)
+    items = _list_agent_messages(db, novel_id=novel_id, user_id=current_user.id, limit=limit)
+    return {"items": items}
+
+
+def _ensure_character_relations_table(db: Session) -> None:
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS character_relations (
+                id VARCHAR(36) PRIMARY KEY,
+                novel_id VARCHAR(36) NOT NULL,
+                source_id VARCHAR(36) NOT NULL,
+                target_id VARCHAR(36) NOT NULL,
+                relation_type VARCHAR(100) NOT NULL,
+                description TEXT,
+                weight INTEGER,
+                stage VARCHAR(100),
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL
+            )
+            """
+        )
+    )
+    db.commit()
+
+
+def _fetch_graph_relations(novel_id: str) -> List[Dict[str, Any]]:
+    rows = run_cypher(
+        """
+        MATCH (n:Novel {id: $novel_id})-[:HAS_CHARACTER]->(a:Character)
+        MATCH (n)-[:HAS_CHARACTER]->(b:Character)
+        MATCH (a)-[r:RELATES_TO]->(b)
+        RETURN r.id AS id,
+               r.type AS relation_type,
+               r.description AS description,
+               r.weight AS weight,
+               r.stage AS stage,
+               r.created_at AS created_at,
+               r.updated_at AS updated_at,
+               a.id AS source_id,
+               a.name AS source_name,
+               b.id AS target_id,
+               b.name AS target_name
+        ORDER BY r.updated_at DESC
+        """,
+        {"novel_id": novel_id},
+    )
+    return rows or []
+
+
+def _upsert_character_relations_db(db: Session, novel_id: str, rows: List[Dict[str, Any]]) -> int:
+    if not rows:
+        return 0
+    _ensure_character_relations_table(db)
+    count = 0
+    for row in rows:
+        relation_id = row.get("id")
+        source_id = row.get("source_id")
+        target_id = row.get("target_id")
+        relation_type = row.get("relation_type")
+        if not relation_id or not source_id or not target_id or not relation_type:
+            continue
+        db.execute(
+            text(
+                """
+                INSERT INTO character_relations (
+                    id,
+                    novel_id,
+                    source_id,
+                    target_id,
+                    relation_type,
+                    description,
+                    weight,
+                    stage,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :id,
+                    :novel_id,
+                    :source_id,
+                    :target_id,
+                    :relation_type,
+                    :description,
+                    :weight,
+                    :stage,
+                    :created_at,
+                    :updated_at
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    relation_type = EXCLUDED.relation_type,
+                    description = EXCLUDED.description,
+                    weight = EXCLUDED.weight,
+                    stage = EXCLUDED.stage,
+                    updated_at = EXCLUDED.updated_at
+                """
+            ),
+            {
+                "id": relation_id,
+                "novel_id": novel_id,
+                "source_id": source_id,
+                "target_id": target_id,
+                "relation_type": relation_type,
+                "description": row.get("description") or "",
+                "weight": row.get("weight"),
+                "stage": row.get("stage"),
+                "created_at": row.get("created_at") or int(time.time() * 1000),
+                "updated_at": row.get("updated_at") or int(time.time() * 1000),
+            },
+        )
+        count += 1
+    db.commit()
+    return count
+
+
+def _parse_json_output(text_value: str) -> Optional[Dict[str, Any]]:
+    if not text_value:
+        return None
+    try:
+        return json.loads(text_value)
+    except Exception:
+        pass
+    start = text_value.find("{")
+    end = text_value.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            return json.loads(text_value[start : end + 1])
+        except Exception:
+            return None
+    return None
+
+
+def _normalize_world_category(category: Optional[str]) -> str:
+    raw = (category or "").lower()
+    if "地理" in raw or "location" in raw or "place" in raw:
+        return "地理"
+    if "社会" in raw or "政治" in raw:
+        return "社会"
+    if "魔法" in raw or "科技" in raw:
+        return "魔法/科技"
+    if "历史" in raw:
+        return "历史"
+    return "其他"
+
+
+def _insert_timeline_events(db: Session, novel_id: str, events: List[Dict[str, Any]]) -> int:
+    if not events:
+        return 0
+    max_order = db.query(func.max(TimelineEvent.event_order)).filter(TimelineEvent.novel_id == novel_id).scalar() or 0
+    created = 0
+    for event in events:
+        time_val = (event.get("time") or "").strip()
+        event_text = (event.get("event") or "").strip()
+        if not time_val or not event_text:
+            continue
+        impact = (event.get("impact") or "").strip()
+        max_order += 1
+        db.add(
+            TimelineEvent(
+                id=generate_uuid(),
+                novel_id=novel_id,
+                time=time_val,
+                event=event_text,
+                impact=impact,
+                event_order=max_order,
+                created_at=int(time.time() * 1000),
+                updated_at=int(time.time() * 1000),
+            )
+        )
+        created += 1
+    if created:
+        db.commit()
+    return created
+
+
+def _insert_world_settings(db: Session, novel_id: str, settings: List[Dict[str, Any]]) -> int:
+    if not settings:
+        return 0
+    max_order = db.query(func.max(WorldSetting.setting_order)).filter(WorldSetting.novel_id == novel_id).scalar() or 0
+    created = 0
+    for setting in settings:
+        title = (setting.get("title") or "").strip()
+        description = (setting.get("description") or "").strip()
+        if not title or not description:
+            continue
+        category = _normalize_world_category(setting.get("category"))
+        max_order += 1
+        db.add(
+            WorldSetting(
+                id=generate_uuid(),
+                novel_id=novel_id,
+                title=title,
+                description=description,
+                category=category,
+                setting_order=max_order,
+                created_at=int(time.time() * 1000),
+                updated_at=int(time.time() * 1000),
+            )
+        )
+        created += 1
+    if created:
+        db.commit()
+    return created
+
+
+def _insert_foreshadowings(db: Session, novel_id: str, foreshadowings: List[Dict[str, Any]]) -> int:
+    if not foreshadowings:
+        return 0
+    max_order = db.query(func.max(Foreshadowing.foreshadowing_order)).filter(Foreshadowing.novel_id == novel_id).scalar() or 0
+    created = 0
+    for item in foreshadowings:
+        content = (item.get("content") or "").strip()
+        if not content:
+            continue
+        max_order += 1
+        db.add(
+            Foreshadowing(
+                id=generate_uuid(),
+                novel_id=novel_id,
+                chapter_id=None,
+                resolved_chapter_id=None,
+                content=content,
+                is_resolved="false",
+                foreshadowing_order=max_order,
+                created_at=int(time.time() * 1000),
+                updated_at=int(time.time() * 1000),
+            )
+        )
+        created += 1
+    if created:
+        db.commit()
+    return created
+
+
+def _apply_character_updates(db: Session, novel_id: str, updates: List[Dict[str, Any]]) -> int:
+    if not updates:
+        return 0
+    updated = 0
+    for item in updates:
+        name = (item.get("name") or "").strip()
+        age = (item.get("age") or "").strip()
+        if not name or not age:
+            continue
+        character = db.query(Character).filter(Character.novel_id == novel_id, Character.name == name).first()
+        if not character:
+            continue
+        if character.age != age:
+            character.age = age
+            character.updated_at = int(time.time() * 1000)
+            updated += 1
+    if updated:
+        db.commit()
+    return updated
+
+
+def _summarize_chapters(db: Session, novel_id: str, overwrite: bool = False) -> int:
+    chapters = (
+        db.query(Chapter)
+        .join(Volume, Chapter.volume_id == Volume.id)
+        .filter(Volume.novel_id == novel_id)
+        .order_by(Chapter.chapter_order)
+        .all()
+    )
+    updated = 0
+    for chapter in chapters:
+        if not chapter.content or not chapter.content.strip():
+            continue
+        if not overwrite and chapter.summary and chapter.summary.strip():
+            continue
+        try:
+            summary = run_async(summarize_chapter_content(chapter.title, chapter.content, 400))
+        except Exception:
+            continue
+        if summary:
+            chapter.summary = summary
+            chapter.updated_at = int(time.time() * 1000)
+            updated += 1
+    if updated:
+        db.commit()
+    return updated
+
+
+def _apply_archivist_payload(db: Session, novel_id: str, payload: Dict[str, Any]) -> Dict[str, int]:
+    if not payload:
+        return {
+            "relations": 0,
+            "timeline": 0,
+            "world_settings": 0,
+            "foreshadowings": 0,
+            "character_updates": 0,
+        }
+    relations = payload.get("relations") or []
+    timeline_events = payload.get("timeline_events") or payload.get("timeline") or []
+    world_settings = payload.get("world_settings") or []
+    foreshadowings = payload.get("foreshadowings") or []
+    character_updates = payload.get("character_updates") or []
+    relation_count = 0
+    if relations:
+        name_to_id = {c.name: c.id for c in db.query(Character).filter(Character.novel_id == novel_id).all()}
+        relation_count = upsert_character_relations(novel_id, relations, name_to_id)
+    timeline_count = _insert_timeline_events(db, novel_id, timeline_events)
+    world_count = _insert_world_settings(db, novel_id, world_settings)
+    foreshadow_count = _insert_foreshadowings(db, novel_id, foreshadowings)
+    character_count = _apply_character_updates(db, novel_id, character_updates)
+    if relation_count or timeline_count or world_count or foreshadow_count or character_count:
+        trigger_graph_sync(novel_id)
+    if relation_count:
+        graph_rows = _fetch_graph_relations(novel_id)
+        _upsert_character_relations_db(db, novel_id, graph_rows)
+    return {
+        "relations": relation_count,
+        "timeline": timeline_count,
+        "world_settings": world_count,
+        "foreshadowings": foreshadow_count,
+        "character_updates": character_count,
+    }
+
+
+def _delete_character_relation_db(db: Session, novel_id: str, relation_id: str) -> None:
+    _ensure_character_relations_table(db)
+    db.execute(
+        text("DELETE FROM character_relations WHERE id = :id AND novel_id = :novel_id"),
+        {"id": relation_id, "novel_id": novel_id},
+    )
+    db.commit()
 
 # ==================== 健康检查 ====================
 

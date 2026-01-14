@@ -58,3 +58,7 @@ Thumbs.db
 *.tmp
 *.bak
 *.swp
+*.recovered
+tmpclaude-*
+backend/tmpclaude-*
+novawrite-ai---professional-novel-assistant/components/*.py

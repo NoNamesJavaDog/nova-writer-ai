@@ -10,7 +10,9 @@ import {
   History,
   Settings,
   X,
-  Lightbulb
+  Lightbulb,
+  Share2,
+  Bot
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,11 +33,13 @@ const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     { id: 'dashboard' as AppView, label: '仪表板', icon: LayoutDashboard },
     { id: 'outline' as AppView, label: '大纲', icon: BookText },
+    { id: 'agents' as AppView, label: '智能小说写作Agent', icon: Bot },
     { id: 'writing' as AppView, label: '写作', icon: PenTool },
     { id: 'characters' as AppView, label: '角色', icon: Users },
     { id: 'world' as AppView, label: '世界观', icon: Globe },
     { id: 'timeline' as AppView, label: '时间线', icon: History },
     { id: 'foreshadowings' as AppView, label: '伏笔', icon: Lightbulb },
+    { id: 'graph' as AppView, label: 'Graph', icon: Share2 },
   ];
 
   // 移动端点击导航项后关闭抽屉

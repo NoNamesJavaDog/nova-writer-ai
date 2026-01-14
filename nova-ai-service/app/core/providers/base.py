@@ -322,6 +322,31 @@ class AIServiceProvider(ABC):
         pass
 
     @abstractmethod
+    async def generate_character_relations(
+        self,
+        title: str,
+        genre: str,
+        synopsis: str,
+        outline: str,
+        characters: List[Dict],
+        progress_callback: Optional[Callable] = None
+    ) -> List[Dict]:
+        """生成角色关系
+
+        Args:
+            title: 小说标题
+            genre: 小说类型
+            synopsis: 简介
+            outline: 大纲
+            characters: 角色列表
+            progress_callback: 进度回调函数（可选）
+
+        Returns:
+            关系列表 [{"source_name": str, "target_name": str, "relation_type": str, "description": str}, ...]
+        """
+        pass
+
+    @abstractmethod
     async def generate_foreshadowings_from_outline(
         self,
         full_outline: str,

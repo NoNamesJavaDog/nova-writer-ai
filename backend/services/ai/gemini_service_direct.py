@@ -15,7 +15,7 @@ if not GEMINI_API_KEY:
 if GEMINI_PROXY:
     # 确保代理地址格式正确（http:// 或 https://）
     proxy_url = GEMINI_PROXY.strip()
-    if not proxy_url.startswith(('http://', 'https://', 'socks5://')):
+    if not proxy_url.startswith(('http://', 'https://', 'socks5://', 'socks5h://')):
         proxy_url = f"http://{proxy_url}"
     
     os.environ['HTTP_PROXY'] = proxy_url

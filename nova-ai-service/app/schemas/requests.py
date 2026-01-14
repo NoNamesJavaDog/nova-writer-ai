@@ -115,6 +115,15 @@ class GenerateTimelineEventsRequest(BaseModel):
     outline: str = Field(..., description="大纲")
 
 
+class GenerateCharacterRelationsRequest(BaseModel):
+    """生成角色关系请求"""
+    title: str = Field(..., description="小说标题")
+    genre: str = Field(..., description="小说类型")
+    synopsis: str = Field(..., description="简介")
+    outline: str = Field(..., description="大纲")
+    characters: List[Dict] = Field(default_factory=list, description="角色列表")
+
+
 class GenerateForeshadowingsRequest(BaseModel):
     """从大纲生成伏笔请求"""
     full_outline: str = Field(..., description="完整大纲")

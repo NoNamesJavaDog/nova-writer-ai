@@ -289,6 +289,26 @@ async def generate_characters(
     )
 
 
+async def generate_character_relations(
+    title: str,
+    genre: str,
+    synopsis: str,
+    outline: str,
+    characters: list,
+    progress_callback=None
+) -> list:
+    """生成角色关系（适配器）"""
+    logger.info(f"[AI Service Adapter] 生成角色关系: {title}")
+    return await _ai_client.generate_character_relations(
+        title=title,
+        genre=genre,
+        synopsis=synopsis,
+        outline=outline,
+        characters=characters,
+        progress_callback=progress_callback
+    )
+
+
 async def generate_world_settings(
     title: str,
     genre: str,
