@@ -4,6 +4,12 @@ import type { Novel, Character, WorldSetting, TimelineEvent, Foreshadowing, Volu
 
 // 使用相对路径，由 Nginx 代理到后端
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const buildUrl = (endpoint: string) => {
+  if (API_BASE_URL.endsWith('/api') && endpoint.startsWith('/api')) {
+    return `${API_BASE_URL}${endpoint.slice(4)}`;
+  }
+  return `${API_BASE_URL}${endpoint}`;
+};
 
 // 统一的 Token 存储：优先 sessionStorage，启动时迁移 legacy localStorage
 const TOKEN_KEY = 'access_token';
@@ -106,7 +112,7 @@ const refreshAccessToken = async (): Promise<LoginResponse | null> => {
         return null;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+      const response = await fetch(buildUrl('/api/auth/refresh'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -163,7 +169,7 @@ export async function apiFetch(
     if (onGuestActionCallback) {
       onGuestActionCallback();
     }
-    throw new Error('Read-only preview mode. Please log in.');
+    throw new Error('当前为只读预览模式，请先登录。');
   }
 
   const headers: HeadersInit = {
@@ -179,7 +185,7 @@ export async function apiFetch(
     (headers as any)['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(buildUrl(endpoint), {
     ...options,
     headers,
   });
@@ -234,7 +240,7 @@ export async function apiRequest<T>(
       if (onGuestActionCallback) {
         onGuestActionCallback();
       }
-      throw new Error('Read-only preview mode. Please log in.');
+      throw new Error('当前为只读预览模式，请先登录。');
     }
     return getGuestResponse(endpoint) as T;
   }

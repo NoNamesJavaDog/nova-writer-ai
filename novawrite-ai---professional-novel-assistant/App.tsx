@@ -91,7 +91,7 @@ const App: React.FC = () => {
       localStorage.removeItem('nova_write_current_user');
     });
     setOnGuestAction(() => {
-      alert('Please log in to continue.');
+      alert('请先登录后再继续操作。');
       setShowLogin(true);
     });
   }, []);
@@ -445,7 +445,7 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 relative lg:ml-0 overflow-hidden">
         {isReadOnly && (
           <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-sm px-4 py-2">
-            Read-only preview mode. Log in to edit or write.
+            当前为只读预览模式，登录后可编辑与写作。
           </div>
         )}
         {loading && (
@@ -547,7 +547,7 @@ const App: React.FC = () => {
                 onClick={() => setShowLogin(true)}
                 className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md hover:bg-slate-50 transition-colors"
               >
-                Login
+                登录
               </button>
             )}
           </div>

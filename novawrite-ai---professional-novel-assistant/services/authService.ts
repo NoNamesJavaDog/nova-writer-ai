@@ -42,6 +42,12 @@ type LoginResponse = {
 
 // 使用相对路径，由 Nginx 代理到后端
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const buildUrl = (endpoint: string) => {
+  if (API_BASE_URL.endsWith('/api') && endpoint.startsWith('/api')) {
+    return `${API_BASE_URL}${endpoint.slice(4)}`;
+  }
+  return `${API_BASE_URL}${endpoint}`;
+};
 
 // 统一 Token 存储：优先 sessionStorage，启动时迁移 legacy localStorage
 const TOKEN_KEY = 'access_token';
@@ -101,7 +107,7 @@ const apiRequest = async <T>(endpoint: string, options: RequestInit = {}): Promi
     headers['Authorization'] = `Bearer ${token}`;
   }
   
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(buildUrl(endpoint), {
     ...options,
     headers,
   });
