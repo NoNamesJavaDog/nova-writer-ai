@@ -77,10 +77,15 @@ const clearAllTokens = (): void => {
 
 // Token 过期回调函数
 let onTokenExpiredCallback: (() => void) | null = null;
+let onGuestActionCallback: (() => void) | null = null;
 
 // 设置 token 过期回调
 export const setOnTokenExpired = (callback: () => void): void => {
   onTokenExpiredCallback = callback;
+};
+
+export const setOnGuestAction = (callback: () => void): void => {
+  onGuestActionCallback = callback;
 };
 
 // 刷新访问令牌
@@ -154,7 +159,10 @@ export async function apiFetch(
 ): Promise<Response> {
   const token = getToken();
   const method = (options.method || 'GET').toUpperCase();
-  if (!token && isGuestMode()) {
+  if (!token && isGuestMode() && method !== 'GET' && method !== 'HEAD') {
+    if (onGuestActionCallback) {
+      onGuestActionCallback();
+    }
     throw new Error('Read-only preview mode. Please log in.');
   }
 
@@ -223,6 +231,9 @@ export async function apiRequest<T>(
   const method = (options.method || 'GET').toUpperCase();
   if (!token && isGuestMode()) {
     if (method != 'GET' && method != 'HEAD') {
+      if (onGuestActionCallback) {
+        onGuestActionCallback();
+      }
       throw new Error('Read-only preview mode. Please log in.');
     }
     return getGuestResponse(endpoint) as T;

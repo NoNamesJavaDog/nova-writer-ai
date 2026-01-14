@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Novel, AppView, Character, WorldSetting, TimelineEvent, Volume, Chapter } from './types';
 // 先导入服务，避免在组件初始化时执行
 import { getCurrentUser, logout, refreshCurrentUser } from './services/authService';
-import { novelApi, currentNovelApi, setOnTokenExpired } from './services/apiService';
+import { novelApi, currentNovelApi, setOnTokenExpired, setOnGuestAction } from './services/apiService';
 import type { LoginResponse } from './services/apiService';
 // 然后导入组件
 import Sidebar from './components/Sidebar';
@@ -40,8 +40,8 @@ const App: React.FC = () => {
   // 认证状态
   // 使用 LoginResponse['user'] 类型，与 authService 返回类型一致
   const [currentUser, setCurrentUser] = useState<LoginResponse['user'] | null>(null);
-  const [isGuest, setIsGuest] = useState(() => sessionStorage.getItem('nova_write_guest_mode') === '1');
-  const isReadOnly = !currentUser && isGuest;
+  const [showLogin, setShowLogin] = useState(false);
+  const isReadOnly = !currentUser;
   const [showUserSettings, setShowUserSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -90,12 +90,16 @@ const App: React.FC = () => {
       // 清除用户缓存
       localStorage.removeItem('nova_write_current_user');
     });
+    setOnGuestAction(() => {
+      alert('Please log in to continue.');
+      setShowLogin(true);
+    });
   }, []);
 
 
   // 从API加载小说列表
   const loadNovels = async () => {
-    if (isGuest || !currentUser || !isMountedRef.current) return;
+    if (!currentUser || !isMountedRef.current) return;
     
     setLoading(true);
     try {
@@ -195,7 +199,10 @@ const App: React.FC = () => {
     // 延迟加载用户信息，避免初始化顺序问题
     const user = getCurrentUser();
     if (user) {
+      sessionStorage.removeItem('nova_write_guest_mode');
       setCurrentUser(user);
+    } else {
+      sessionStorage.setItem('nova_write_guest_mode', '1');
     }
     
     // 清理函数：组件卸载时标记为未挂载
@@ -207,15 +214,14 @@ const App: React.FC = () => {
   // 当用户切换时，重新加载数据
   useEffect(() => {
     if (currentUser) {
+      sessionStorage.removeItem('nova_write_guest_mode');
       loadNovels();
-    } else if (isGuest) {
+    } else {
+      sessionStorage.setItem('nova_write_guest_mode', '1');
       setNovels([INITIAL_NOVEL]);
       setCurrentNovelId(INITIAL_NOVEL.id);
-    } else {
-      setNovels([]);
-      setCurrentNovelId('');
     }
-  }, [currentUser, isGuest]);
+  }, [currentUser]);
 
   // 保存activeView到localStorage
   useEffect(() => {
@@ -368,25 +374,17 @@ const App: React.FC = () => {
   // 处理登录成功
   const handleLoginSuccess = async () => {
     sessionStorage.removeItem('nova_write_guest_mode');
-    setIsGuest(false);
+    setShowLogin(false);
     const user = await refreshCurrentUser();
     setCurrentUser(user);
     // 数据会在 useEffect 中自动加载
   };
 
   // 处理登出
-  const handleBrowse = () => {
-    sessionStorage.setItem('nova_write_guest_mode', '1');
-    setIsGuest(true);
-    setCurrentUser(null);
-    setNovels([INITIAL_NOVEL]);
-    setCurrentNovelId(INITIAL_NOVEL.id);
-  };
-
   const handleLogout = () => {
     logout();
-    sessionStorage.removeItem('nova_write_guest_mode');
-    setIsGuest(false);
+    sessionStorage.setItem('nova_write_guest_mode', '1');
+    setShowLogin(false);
     setCurrentUser(null);
     setShowUserMenu(false);
     // 重置数据
@@ -395,8 +393,8 @@ const App: React.FC = () => {
   };
 
   // 如果未登录，显示登录页面
-  if (!currentUser && !isGuest) {
-    return <Login onLoginSuccess={handleLoginSuccess} onBrowse={handleBrowse} />;
+  if (showLogin) {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
   }
 
   const renderView = () => {
@@ -545,9 +543,12 @@ const App: React.FC = () => {
                 )}
               </div>
             ) : (
-              <div className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md">
-                Guest
-              </div>
+              <button
+                onClick={() => setShowLogin(true)}
+                className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md hover:bg-slate-50 transition-colors"
+              >
+                Login
+              </button>
             )}
           </div>
         </header>

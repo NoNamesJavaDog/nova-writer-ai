@@ -4,10 +4,10 @@ import { login, getCaptcha, checkLoginStatus } from '../services/authService';
 
 interface LoginProps {
   onLoginSuccess: () => void;
-  onBrowse: () => void;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess, onBrowse }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [captchaCode, setCaptchaCode] = useState('');
@@ -196,25 +196,8 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onBrowse }) => {
                           onClick={loadCaptcha}
                           title="点击刷新验证码"
                         />
-                        <button
-                          type="button"
-                          onClick={loadCaptcha}
-                          disabled={loadingCaptcha}
-                          className="absolute -right-8 top-0 p-1 text-slate-500 hover:text-indigo-600 transition-colors"
-                          title="刷新验证码"
-                        >
-                          <RefreshCw size={16} className={loadingCaptcha ? 'animate-spin' : ''} />
-                        </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={loadCaptcha}
-                        disabled={loadingCaptcha}
-                        className="px-3 py-2.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm"
-                      >
-                        {loadingCaptcha ? '加载中...' : '获取验证码'}
-                      </button>
                     )}
                   </div>
                 </div>
@@ -223,23 +206,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onBrowse }) => {
 
 
             {/* 提交按钮 */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                  处理中...
-                </>
-              ) : (
-                <>
-                  <LogIn size={18} />
-                  登录
-                </>
-              )}
-            </button>
           </form>
 
         </div>
@@ -247,13 +213,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onBrowse }) => {
         {/* 提示信息 */}
         <div className="mt-6 text-center text-sm text-slate-500">
           <p>💡 提示：数据存储在浏览器本地，请妥善保管您的账户信息</p>
-          <button
-            type="button"
-            onClick={onBrowse}
-            className="mt-4 inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            Browse mode (read-only)
-          </button>
         </div>
       </div>
     </div>
