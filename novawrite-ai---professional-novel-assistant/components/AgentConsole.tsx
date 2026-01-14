@@ -88,13 +88,20 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
     try {
       const res = await agentApi.history(novel.id, 20);
       setHistory(res?.items || []);
+      let foundPending = false;
       if (Array.isArray(res?.items)) {
         const candidates = res.items.filter((item: any) => item.agent === 'flow');
         const latest = candidates.find((item: any) => item.status && item.status !== 'completed');
         if (latest?.id) {
+          const stage = extractStageFromRun(latest);
           setLastFlowRunId(latest.id);
-          setLastFlowStage(extractStageFromRun(latest));
+          setLastFlowStage(stage);
+          setNotice(`检测到未完成的流程：${stage ? getStageLabel(stage) : '等待恢复'}`);
+          foundPending = true;
         }
+      }
+      if (!foundPending) {
+        setNotice(null);
       }
     } catch (err: any) {
       setError(err?.message || '加载历史失败');

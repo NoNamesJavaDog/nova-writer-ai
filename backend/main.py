@@ -6504,6 +6504,41 @@ async def run_agent_flow_stream(
         selected_volume_id = request.volume_id
         selected_chapter_id = request.chapter_id
 
+        def _persist_flow_state(stage_value: str) -> None:
+            output_payload = json.dumps(
+                {
+                    "stage": stage_value,
+                    "user_message": user_message,
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "retries": retries,
+                    "max_retries": max_retries,
+                    "critic_threshold": threshold,
+                    "writer_prompt": writer_prompt,
+                    "volume_id": selected_volume_id,
+                    "chapter_id": selected_chapter_id,
+                    "summarize_chapters": request.summarize_chapters,
+                    "overwrite_summaries": request.overwrite_summaries,
+                },
+                ensure_ascii=False,
+            )
+            _persist_agent_run(
+                db,
+                run_id=flow_id,
+                novel_id=request.novel_id,
+                user_id=current_user.id,
+                agent="flow",
+                input_text=user_message,
+                output=output_payload,
+                status_text="running",
+                score=critic_score,
+                issues=json.dumps(critic_issues, ensure_ascii=False),
+            )
+
         yield _sse_event("status", {"stage": "director", "status": "start", "run_id": flow_id})
         _save_flow_status_message(
             db,
@@ -6513,6 +6548,7 @@ async def run_agent_flow_stream(
             stage="director",
             status="start",
         )
+        _persist_flow_state("start")
         try:
             if _is_cancelled(flow_id):
                 output_payload = json.dumps(
@@ -6571,6 +6607,7 @@ async def run_agent_flow_stream(
             director = _run_agent_llm("director", user_message, context_text).get("text", "")
             stage_completed = "director"
             yield _sse_event("stage_output", {"stage": "director", "text": director})
+            _persist_flow_state("director")
 
             writer_prompt = f"Director plan:\n{director}\n\nWrite the scene."
             while retries <= max_retries:
@@ -6702,6 +6739,7 @@ async def run_agent_flow_stream(
                 writer_output = "".join(writer_chunks)
                 stage_completed = "writer"
                 yield _sse_event("stage_output", {"stage": "writer", "text": writer_output})
+                _persist_flow_state("writer")
 
                 yield _sse_event(
                     "status",
@@ -6719,6 +6757,7 @@ async def run_agent_flow_stream(
                 critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
                 stage_completed = "critic"
                 yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
+                _persist_flow_state("critic")
                 try:
                     critic_json = json.loads(critic_output)
                     critic_score = int(critic_json.get("score") or 0)
@@ -6787,6 +6826,7 @@ async def run_agent_flow_stream(
             archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
             stage_completed = "archivist"
             yield _sse_event("stage_output", {"stage": "archivist", "text": archivist_output})
+            _persist_flow_state("archivist")
             parsed_archivist = _parse_json_output(archivist_output)
             if parsed_archivist:
                 _apply_archivist_payload(db, request.novel_id, parsed_archivist)
@@ -6985,6 +7025,38 @@ async def run_agent_flow_resume_stream(
         selected_chapter_id = state.get("chapter_id")
 
         _register_run_owner(request.run_id, current_user.id)
+        _persist_agent_run(
+            db,
+            run_id=request.run_id,
+            novel_id=novel_id,
+            user_id=current_user.id,
+            agent="flow",
+            input_text=user_message,
+            output=json.dumps(
+                {
+                    "stage": stage_completed,
+                    "user_message": user_message,
+                    "director": director,
+                    "writer": writer_output,
+                    "critic": critic_output,
+                    "archivist": archivist_output,
+                    "score": critic_score,
+                    "issues": critic_issues,
+                    "retries": retries,
+                    "max_retries": max_retries,
+                    "critic_threshold": threshold,
+                    "writer_prompt": writer_prompt,
+                    "volume_id": selected_volume_id,
+                    "chapter_id": selected_chapter_id,
+                    "summarize_chapters": summarize_chapters,
+                    "overwrite_summaries": overwrite_summaries,
+                },
+                ensure_ascii=False,
+            ),
+            status_text="running",
+            score=critic_score,
+            issues=json.dumps(critic_issues, ensure_ascii=False),
+        )
         try:
             if _is_cancelled(request.run_id):
                 output_payload = json.dumps(
