@@ -189,15 +189,32 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   <div className="flex items-center">
                     {captchaImage ? (
                       <div className="relative">
-                        <img 
-                          src={captchaImage} 
-                          alt="验证码" 
+                        <img
+                          src={captchaImage}
+                          alt="captcha"
                           className="h-10 w-28 border border-slate-300 rounded cursor-pointer"
                           onClick={loadCaptcha}
-                          title="点击刷新验证码"
+                          title="Refresh captcha"
                         />
+                        <button
+                          type="button"
+                          onClick={loadCaptcha}
+                          disabled={loadingCaptcha}
+                          className="absolute -right-8 top-0 p-1 text-slate-500 hover:text-indigo-600 transition-colors"
+                          title="Refresh captcha"
+                        >
+                          <RefreshCw size={16} className={loadingCaptcha ? "animate-spin" : ""} />
+                        </button>
                       </div>
                     ) : (
+                      <button
+                        type="button"
+                        onClick={loadCaptcha}
+                        disabled={loadingCaptcha}
+                        className="px-3 py-2.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm"
+                      >
+                        {loadingCaptcha ? "Loading..." : "Get captcha"}
+                      </button>
                     )}
                   </div>
                 </div>
