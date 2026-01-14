@@ -76,3 +76,6 @@ AI 微服务文档（nova-ai-service/）
 - `scripts/stop_local.sh`
 - `backend/scripts/` 后端运维脚本
 - `novawrite-ai---professional-novel-assistant/scripts/` 前端部署脚本
+
+许可证
+本项目采用 CC BY-NC 4.0 许可协议，详见 `LICENSE`。
