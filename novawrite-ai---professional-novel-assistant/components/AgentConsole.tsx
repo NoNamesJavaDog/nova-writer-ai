@@ -28,11 +28,11 @@ interface StreamEventPayload {
 }
 
 const stageLabels: Record<string, string> = {
-  director: '??',
-  writer: '??',
-  critic: '??',
-  archivist: '??',
-  flow: '??',
+  director: '导演',
+  writer: '写作',
+  critic: '批评',
+  archivist: '档案',
+  flow: '流程',
 };
 
 const createId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -58,7 +58,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
   const chapters = selectedVolume?.chapters || [];
 
   const getStageLabel = (stage?: string) => {
-    if (!stage) return 'Agent';
+    if (!stage) return '智能体';
     return stageLabels[stage] || stage;
   };
 
@@ -97,7 +97,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
         }
       }
     } catch (err: any) {
-      setError(err?.message || '??????');
+      setError(err?.message || '加载历史失败');
     }
   };
 
@@ -118,7 +118,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
         {
           id: 'welcome',
           role: 'system',
-          text: '????????????????????????',
+          text: '欢迎来到智能小说写作 Agent，对话会自动触发多角色流程。',
         },
       ];
       const mapped = items.map((item: any) => ({
@@ -129,7 +129,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
       }));
       setMessages([...base, ...mapped]);
     } catch (err: any) {
-      setError(err?.message || '????????');
+      setError(err?.message || '加载对话记录失败');
     }
   };
 
@@ -224,7 +224,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `????: ${response.status}`);
+        throw new Error(errorData.detail || `请求失败: ${response.status}`);
       }
 
       await consumeSse(response, (event, data) => {
@@ -235,13 +235,13 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
             appendMessage({
               id: createId(),
               role: 'system',
-              text: `???????${title || data.chapter_id}`,
+              text: `已保存到章节：${title || data.chapter_id}`,
             });
             return;
           }
           const stage = data.stage || 'agent';
           const stageLabel = getStageLabel(stage);
-          const statusText = data.status === 'retry' ? '??' : '??';
+          const statusText = data.status === 'retry' ? '重试' : '执行';
           if (data.run_id) {
             setCurrentRunId(data.run_id);
             setLastFlowRunId(data.run_id);
@@ -250,7 +250,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           appendMessage({
             id: createId(),
             role: 'system',
-            text: `?????${stageLabel}?${statusText}${data.attempt ? `??${data.attempt}?` : ''}?`,
+            text: `流程更新：${stageLabel} · ${statusText}${data.attempt ? ` · 第${data.attempt}次` : ''}`,
           });
           return;
         }
@@ -264,7 +264,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           return;
         }
         if (event === 'done' && typeof data === 'object') {
-          setNotice(`???? ? ?? ${data.score ?? '-'}`);
+          setNotice(`流程完成 · 评分 ${data.score ?? '-'}`);
           setLastFlowRunId(null);
           setLastFlowStage(null);
           setCurrentRunId(null);
@@ -272,9 +272,9 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           setLoading(false);
         }
         if (event === 'error' && typeof data === 'object') {
-          const msg = data.message || data.text || data.status || '??????';
+          const msg = data.message || data.text || data.status || '流程执行失败';
           setError(msg);
-          appendMessage({ id: createId(), role: 'system', text: `?????${msg}` });
+          appendMessage({ id: createId(), role: 'system', text: `流程错误：${msg}` });
           if (data.run_id) {
             setLastFlowRunId(data.run_id);
             setLastFlowStage(data.stage || null);
@@ -283,8 +283,8 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           setLoading(false);
         }
         if (event === 'cancelled' && typeof data === 'object') {
-          setNotice('?????');
-          appendMessage({ id: createId(), role: 'system', text: '??????' });
+          setNotice('流程已停止');
+          appendMessage({ id: createId(), role: 'system', text: '已中止当前流程' });
           if (data.run_id) {
             setLastFlowRunId(data.run_id);
             setLastFlowStage(data.stage || null);
@@ -294,9 +294,9 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
         }
       });
     } catch (err: any) {
-      const msg = err?.message || '??????';
+      const msg = err?.message || '流程请求失败';
       setError(msg);
-      appendMessage({ id: createId(), role: 'system', text: `?????${msg}` });
+      appendMessage({ id: createId(), role: 'system', text: `流程错误：${msg}` });
     } finally {
       setLoading(false);
     }
@@ -310,14 +310,14 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
     appendMessage({
       id: createId(),
       role: 'system',
-      text: `??????${lastFlowStage ? getStageLabel(lastFlowStage) : '???'}???...`,
+      text: `继续流程：${lastFlowStage ? getStageLabel(lastFlowStage) : '上次未完成步骤'}...`,
     });
     setCurrentRunId(lastFlowRunId);
     try {
       const response = await agentApi.flowResumeStream({ run_id: lastFlowRunId });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `????: ${response.status}`);
+        throw new Error(errorData.detail || `请求失败: ${response.status}`);
       }
       await consumeSse(response, (event, data) => {
         if (!data) return;
@@ -327,13 +327,13 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
             appendMessage({
               id: createId(),
               role: 'system',
-              text: `???????${title || data.chapter_id}`,
+              text: `已保存到章节：${title || data.chapter_id}`,
             });
             return;
           }
           const stage = data.stage || 'agent';
           const stageLabel = getStageLabel(stage);
-          const statusText = data.status === 'retry' ? '??' : '??';
+          const statusText = data.status === 'retry' ? '重试' : '执行';
           if (data.run_id) {
             setCurrentRunId(data.run_id);
             setLastFlowRunId(data.run_id);
@@ -342,7 +342,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           appendMessage({
             id: createId(),
             role: 'system',
-            text: `?????${stageLabel}?${statusText}${data.attempt ? `??${data.attempt}?` : ''}?`,
+            text: `流程更新：${stageLabel} · ${statusText}${data.attempt ? ` · 第${data.attempt}次` : ''}`,
           });
           return;
         }
@@ -356,7 +356,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           return;
         }
         if (event === 'done' && typeof data === 'object') {
-          setNotice(`???? ? ?? ${data.score ?? '-'}`);
+          setNotice(`流程完成 · 评分 ${data.score ?? '-'}`);
           setLastFlowRunId(null);
           setLastFlowStage(null);
           setCurrentRunId(null);
@@ -364,9 +364,9 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           setLoading(false);
         }
         if (event === 'error' && typeof data === 'object') {
-          const msg = data.message || data.text || data.status || '??????';
+          const msg = data.message || data.text || data.status || '流程执行失败';
           setError(msg);
-          appendMessage({ id: createId(), role: 'system', text: `?????${msg}` });
+          appendMessage({ id: createId(), role: 'system', text: `流程错误：${msg}` });
           if (data.run_id) {
             setLastFlowRunId(data.run_id);
             setLastFlowStage(data.stage || null);
@@ -375,8 +375,8 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           setLoading(false);
         }
         if (event === 'cancelled' && typeof data === 'object') {
-          setNotice('?????');
-          appendMessage({ id: createId(), role: 'system', text: '??????' });
+          setNotice('流程已停止');
+          appendMessage({ id: createId(), role: 'system', text: '已中止当前流程' });
           if (data.run_id) {
             setLastFlowRunId(data.run_id);
             setLastFlowStage(data.stage || null);
@@ -386,9 +386,9 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
         }
       });
     } catch (err: any) {
-      const msg = err?.message || '??????';
+      const msg = err?.message || '流程请求失败';
       setError(msg);
-      appendMessage({ id: createId(), role: 'system', text: `?????${msg}` });
+      appendMessage({ id: createId(), role: 'system', text: `流程错误：${msg}` });
       setLoading(false);
     } finally {
       setLoading(false);
@@ -397,18 +397,18 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
 
   const stopRun = async () => {
     if (!currentRunId) return;
-    setNotice('???????');
+    setNotice('正在停止流程...');
     try {
       await agentApi.cancelRun({ run_id: currentRunId });
     } catch (err: any) {
-      setError(err?.message || '????');
+      setError(err?.message || '停止失败');
     }
   };
 
   const handleSend = async () => {
     const trimmed = message.trim();
     if (!trimmed) {
-      setError('?????');
+      setError('请输入内容');
       return;
     }
     appendMessage({ id: createId(), role: 'user', text: trimmed });
@@ -450,22 +450,22 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
                 className="text-xs uppercase tracking-[0.3em] text-[color:var(--agent-accent-2)]"
                 style={{ fontFamily: '"Space Grotesk", sans-serif' }}
               >
-                Agent Dialog
+                对话控制台
               </p>
               <h2
                 className="text-2xl font-semibold text-[color:var(--agent-ink)]"
                 style={{ fontFamily: '"Fraunces", "Noto Serif SC", serif' }}
               >
-                ??????Agent
+                智能小说写作 Agent
               </h2>
-              <p className="text-sm text-slate-600">????????????????????</p>
+              <p className="text-sm text-slate-600">以对话驱动多角色协作写作与归档。</p>
             </div>
             <div className="flex items-center gap-2">
               <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-                {loading ? '???...' : '????'}
+                {loading ? '生成中...' : '就绪'}
               </span>
               <span className="rounded-full bg-[color:var(--agent-ink)] px-3 py-1 text-xs text-[color:var(--agent-cream)]">
-                {novel?.title || '?????'}
+                {novel?.title || '未选择作品'}
               </span>
             </div>
           </header>
@@ -507,8 +507,8 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
               {loading && (
                 <div className="flex justify-start">
                   <div className="max-w-[70%] rounded-2xl bg-[color:var(--agent-ink)]/90 px-4 py-3 text-sm text-[color:var(--agent-cream)]">
-                    <div className="mb-1 text-xs uppercase tracking-[0.2em] text-white/70">Agent</div>
-                    ????????...
+                    <div className="mb-1 text-xs uppercase tracking-[0.2em] text-white/70">智能体</div>
+                    正在生成内容...
                   </div>
                 </div>
               )}
@@ -525,10 +525,10 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
                   }}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">??????????</option>
+                  <option value="">选择卷（可选）</option>
                   {volumes.map((volume, index) => (
                     <option key={volume.id} value={volume.id}>
-                      ?{index + 1}? ? {volume.title}
+                      第{index + 1}卷 · {volume.title}
                     </option>
                   ))}
                 </select>
@@ -538,10 +538,10 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                   disabled={!selectedVolume}
                 >
-                  <option value="">?????????/??????</option>
+                  <option value="">选择章（可选）</option>
                   {chapters.map((chapter, index) => (
                     <option key={chapter.id} value={chapter.id}>
-                      ?{index + 1}? ? {chapter.title}
+                      第{index + 1}章 · {chapter.title}
                     </option>
                   ))}
                 </select>
@@ -556,10 +556,10 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
                   }
                 }}
                 className="min-h-[96px] w-full resize-none bg-transparent text-sm text-slate-700 outline-none"
-                placeholder="???????Enter ???Shift+Enter ???"
+                placeholder="输入你的写作需求，Enter 发送，Shift+Enter 换行"
               />
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <div className="text-xs text-slate-500">?????????</div>
+                <div className="text-xs text-slate-500">支持流式输出与流程控制</div>
                 <button
                   onClick={loading ? stopRun : handleSend}
                   className={`rounded-full px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[color:var(--agent-cream)] transition ${
@@ -569,10 +569,10 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
                   {loading ? (
                     <span className="inline-flex items-center gap-2">
                       <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                      ????
+                      生成中
                     </span>
                   ) : (
-                    '??'
+                    '发送'
                   )}
                 </button>
               </div>
@@ -583,19 +583,19 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
         <aside className="flex flex-col gap-4">
           <div className="rounded-2xl border border-slate-200 bg-white/85 p-4">
             <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-800">????</div>
+              <div className="text-sm font-semibold text-slate-800">流程记录</div>
               <button
                 onClick={loadHistory}
                 className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500 hover:bg-slate-50"
                 disabled={loading}
               >
-                ??
+                刷新
               </button>
             </div>
             <div className="max-h-72 space-y-3 overflow-y-auto text-xs text-slate-600">
               {history.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-slate-400">
-                  ????
+                  暂无记录
                 </div>
               ) : (
                 history.map((item) => (
@@ -616,7 +616,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
                 className="mt-3 w-full rounded-full border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
                 disabled={!loading}
               >
-                ??????
+                停止当前流程
               </button>
             )}
             {lastFlowRunId && (
@@ -625,7 +625,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
                 className="mt-3 w-full rounded-full border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
                 disabled={loading}
               >
-                ????
+                继续未完成流程
               </button>
             )}
           </div>
