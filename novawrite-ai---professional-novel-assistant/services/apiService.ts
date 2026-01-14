@@ -215,7 +215,7 @@ export async function apiFetch(
     (retryHeaders as any)['Content-Type'] = 'application/json';
   }
 
-  const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const retryResponse = await fetch(buildUrl(endpoint), {
     ...options,
     headers: retryHeaders,
   });
@@ -258,7 +258,7 @@ export async function apiRequest<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
   
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(buildUrl(endpoint), {
     ...options,
     headers,
   });
@@ -275,7 +275,7 @@ export async function apiRequest<T>(
           'Authorization': `Bearer ${refreshed.access_token}`,
         };
         
-        const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, {
+        const retryResponse = await fetch(buildUrl(endpoint), {
           ...options,
           headers: newHeaders,
         });
