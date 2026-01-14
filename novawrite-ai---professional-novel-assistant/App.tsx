@@ -555,13 +555,13 @@ const App: React.FC = () => {
         </div>
       </main>
       
-      {/* 移动端底部导航栏 */}
+      {/* ???????? */}
       <MobileNav 
         activeView={activeView} 
         setActiveView={setActiveView}
       />
       
-      {/* 作品管理弹窗 */}
+      {/* ?????? */}
       {showNovelManager && (
         <NovelManager
           novels={novels}
@@ -572,15 +572,16 @@ const App: React.FC = () => {
           onDeleteNovel={handleDeleteNovel}
           onClose={() => setShowNovelManager(false)}
         />
+      )}
       
-      {/* 用户设置弹窗 */}
+      {/* ?????? */}
       {showUserSettings && (
         <UserSettings
           onClose={() => setShowUserSettings(false)}
           onLogout={handleLogout}
         />
+      )}
     </div>
   );
 };
-
 export default App;
