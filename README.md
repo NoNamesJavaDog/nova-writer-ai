@@ -85,6 +85,9 @@ Scripts
 License
 CC BY-NC 4.0. See `LICENSE`.
 
+Contact
+Email: 1057135186@qq.com
+
 # 中文
 
 Nova Writer AI 是面向长篇小说创作的多 Agent 写作系统，专为“持续长跑型写作”而设计。它把“写一段”变成完整生产线：导演负责戏剧意图与节奏，作家负责叙事与文风，评论负责一致性和问题清单，存档则把结构化信息写回世界观与人物档案，让故事越写越稳。
@@ -167,3 +170,6 @@ AI 微服务文档（`nova-ai-service/`）
 
 许可证
 本项目使用 CC BY-NC 4.0 许可协议，详见 `LICENSE`。
+
+联系方式
+邮箱：1057135186@qq.com
