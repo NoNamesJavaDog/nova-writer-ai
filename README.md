@@ -4,7 +4,9 @@ Nova Writer AI
 
 # English
 
-Nova Writer AI is a multi-agent novel writing system with streaming output, resumable workflows, and persistent chat history. It includes a web frontend, backend API, and an AI microservice.
+Nova Writer AI is a multi-agent novel writing system designed for long-form storytelling. It turns “write a scene” into a guided production line: a Director sets the dramatic intent, a Writer drafts with voice and imagery, a Critic pressures the draft for coherence, and an Archivist extracts structured updates (timeline, characters, world notes) so your book stays consistent as it grows.
+
+This is not a toy chatbox. It is a workflow engine with streaming output, pause/cancel and resume, and persistent chat history that survives page reloads and devices. Drafts can be auto-saved into chapters with summaries, letting you keep momentum without losing continuity. The system ships as a full stack: web frontend, backend API, and a dedicated AI microservice.
 
 Key Features
 - Multi-agent workflow: Director, Writer, Critic, Archivist
@@ -85,7 +87,9 @@ CC BY-NC 4.0. See `LICENSE`.
 
 # 中文
 
-Nova Writer AI 是面向长篇小说创作的多 Agent 写作系统，支持流式输出、流程可中断/可恢复，并将对话与流程步骤持久化到数据库。项目由前端、后端 API 与 AI 微服务组成。
+Nova Writer AI 是面向长篇小说创作的多 Agent 写作系统，专为“持续长跑型写作”而设计。它把“写一段”变成完整生产线：导演负责戏剧意图与节奏，作家负责叙事与文风，评论负责一致性和问题清单，存档则把结构化信息写回世界观与人物档案，让故事越写越稳。
+
+这不是一个简单的聊天框，而是一个具备流程引擎能力的写作工作台：流式输出、可暂停/可恢复、跨终端的对话记录、自动入库章节与摘要生成，帮助你保持创作节奏并避免设定崩坏。系统包含完整前端、后端 API 与 AI 微服务，适合个人创作也适合团队协作。
 
 主要特性
 - 多 Agent 协作：导演/作家/评论/存档
