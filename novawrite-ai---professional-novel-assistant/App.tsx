@@ -40,6 +40,8 @@ const App: React.FC = () => {
   // 认证状态
   // 使用 LoginResponse['user'] 类型，与 authService 返回类型一致
   const [currentUser, setCurrentUser] = useState<LoginResponse['user'] | null>(null);
+  const [isGuest, setIsGuest] = useState(() => sessionStorage.getItem('nova_write_guest_mode') === '1');
+  const isReadOnly = !currentUser && isGuest;
   const [showUserSettings, setShowUserSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -93,7 +95,7 @@ const App: React.FC = () => {
 
   // 从API加载小说列表
   const loadNovels = async () => {
-    if (!currentUser || !isMountedRef.current) return;
+    if (isGuest || !currentUser || !isMountedRef.current) return;
     
     setLoading(true);
     try {
@@ -206,11 +208,14 @@ const App: React.FC = () => {
   useEffect(() => {
     if (currentUser) {
       loadNovels();
+    } else if (isGuest) {
+      setNovels([INITIAL_NOVEL]);
+      setCurrentNovelId(INITIAL_NOVEL.id);
     } else {
       setNovels([]);
       setCurrentNovelId('');
     }
-  }, [currentUser]);
+  }, [currentUser, isGuest]);
 
   // 保存activeView到localStorage
   useEffect(() => {
@@ -362,14 +367,26 @@ const App: React.FC = () => {
 
   // 处理登录成功
   const handleLoginSuccess = async () => {
+    sessionStorage.removeItem('nova_write_guest_mode');
+    setIsGuest(false);
     const user = await refreshCurrentUser();
     setCurrentUser(user);
     // 数据会在 useEffect 中自动加载
   };
 
   // 处理登出
+  const handleBrowse = () => {
+    sessionStorage.setItem('nova_write_guest_mode', '1');
+    setIsGuest(true);
+    setCurrentUser(null);
+    setNovels([INITIAL_NOVEL]);
+    setCurrentNovelId(INITIAL_NOVEL.id);
+  };
+
   const handleLogout = () => {
     logout();
+    sessionStorage.removeItem('nova_write_guest_mode');
+    setIsGuest(false);
     setCurrentUser(null);
     setShowUserMenu(false);
     // 重置数据
@@ -378,8 +395,8 @@ const App: React.FC = () => {
   };
 
   // 如果未登录，显示登录页面
-  if (!currentUser) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+  if (!currentUser && !isGuest) {
+    return <Login onLoginSuccess={handleLoginSuccess} onBrowse={handleBrowse} />;
   }
 
   const renderView = () => {
@@ -428,11 +445,16 @@ const App: React.FC = () => {
         onMobileClose={() => setIsMobileSidebarOpen(false)}
       />
       <main className="flex-1 flex flex-col min-w-0 relative lg:ml-0 overflow-hidden">
+        {isReadOnly && (
+          <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-sm px-4 py-2">
+            Read-only preview mode. Log in to edit or write.
+          </div>
+        )}
         {loading && (
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-4 flex items-center gap-3">
               <span className="inline-block w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>
-              <span className="text-slate-700">加载中...</span>
+              <span className="text-slate-700">Loading...</span>
             </div>
           </div>
         )}
@@ -458,7 +480,8 @@ const App: React.FC = () => {
             <div className="relative">
               <button
                 onClick={() => setShowNovelManager(true)}
-                className="px-2 md:px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md hover:bg-slate-50 active:bg-slate-100 transition-colors flex items-center gap-1 md:gap-2 min-h-[36px]"
+                disabled={isReadOnly}
+                className="px-2 md:px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md hover:bg-slate-50 active:bg-slate-100 transition-colors flex items-center gap-1 md:gap-2 min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label="选择作品"
               >
                 <BookOpen size={14} />
@@ -470,55 +493,62 @@ const App: React.FC = () => {
             </div>
             <button 
               onClick={() => setActiveView('writing')}
-              className="px-2 md:px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 active:bg-indigo-800 transition-colors flex items-center gap-1 md:gap-2 min-h-[36px]"
+              disabled={isReadOnly}
+              className="px-2 md:px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 active:bg-indigo-800 transition-colors flex items-center gap-1 md:gap-2 min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <PenTool size={14} />
               <span className="hidden sm:inline">继续写作</span>
             </button>
             
             {/* 用户菜单 */}
-            <div className="relative">
-              <button
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md hover:bg-slate-50 transition-colors flex items-center gap-2"
-              >
-                <UserIcon size={14} />
-                <span className="max-w-[100px] truncate">{currentUser.username}</span>
-                <ChevronDown size={14} />
-              </button>
-              
-              {showUserMenu && (
-                <>
-                  <div 
-                    className="fixed inset-0 z-10" 
-                    onClick={() => setShowUserMenu(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1">
-                    <button
-                      onClick={() => {
-                        setShowUserSettings(true);
-                        setShowUserMenu(false);
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                    >
-                      <Settings size={16} />
-                      用户设置
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleLogout();
-                        setShowUserMenu(false);
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                    >
-                      <LogOut size={16} />
-                      登出
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+            {/* User menu */}
+            {currentUser ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md hover:bg-slate-50 transition-colors flex items-center gap-2"
+                >
+                  <UserIcon size={14} />
+                  <span className="max-w-[100px] truncate">{currentUser.username}</span>
+                  <ChevronDown size={14} />
+                </button>
+
+                {showUserMenu && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowUserMenu(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1">
+                      <button
+                        onClick={() => {
+                          setShowUserSettings(true);
+                          setShowUserMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <Settings size={16} />
+                        User settings
+                      </button>
+                      <button
+                        onClick={() => {
+                          handleLogout();
+                          setShowUserMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                      >
+                        <LogOut size={16} />
+                        Log out
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md">
+                Guest
+              </div>
+            )}
         </header>
         <div className="flex-1 overflow-y-auto overflow-x-hidden pb-16 lg:pb-0 overscroll-contain">
           {renderView()}
@@ -542,7 +572,6 @@ const App: React.FC = () => {
           onDeleteNovel={handleDeleteNovel}
           onClose={() => setShowNovelManager(false)}
         />
-      )}
       
       {/* 用户设置弹窗 */}
       {showUserSettings && (
@@ -550,7 +579,6 @@ const App: React.FC = () => {
           onClose={() => setShowUserSettings(false)}
           onLogout={handleLogout}
         />
-      )}
     </div>
   );
 };

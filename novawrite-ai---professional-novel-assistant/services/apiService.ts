@@ -8,6 +8,15 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 // 统一的 Token 存储：优先 sessionStorage，启动时迁移 legacy localStorage
 const TOKEN_KEY = 'access_token';
 const REFRESH_KEY = 'refresh_token';
+const GUEST_KEY = 'nova_write_guest_mode';
+
+const isGuestMode = (): boolean => {
+  try {
+    return sessionStorage.getItem(GUEST_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
 
 const migrateLocalToSession = () => {
   try {
@@ -122,12 +131,32 @@ const refreshAccessToken = async (): Promise<LoginResponse | null> => {
 };
 
 // 通用 fetch（支持 401 自动刷新），用于流式接口等需要拿到 Response 的场景
+
+const getGuestResponse = (endpoint: string): any => {
+  const base = endpoint.split('?')[0];
+  if (base == '/api/novels') return [];
+  if (base == '/api/current-novel') return { novel_id: null };
+  if (base.includes('/characters')) return [];
+  if (base.includes('/world-settings')) return [];
+  if (base.includes('/timeline')) return [];
+  if (base.includes('/foreshadowings')) return [];
+  if (base.includes('/chapters') && base.includes('/volumes/')) return [];
+  if (base.startsWith('/api/agents/history')) return { items: [] };
+  if (base.startsWith('/api/agents/chat')) return { items: [] };
+  if (base.startsWith('/api/graph/')) return { items: [] };
+  return {};
+};
+
 export async function apiFetch(
   endpoint: string,
   options: RequestInit = {},
   retryOn401: boolean = true
 ): Promise<Response> {
   const token = getToken();
+  const method = (options.method || 'GET').toUpperCase();
+  if (!token && isGuestMode()) {
+    throw new Error('Read-only preview mode. Please log in.');
+  }
 
   const headers: HeadersInit = {
     ...(options.headers || {}),
@@ -191,6 +220,13 @@ export async function apiRequest<T>(
   retryOn401: boolean = true
 ): Promise<T> {
   const token = getToken();
+  const method = (options.method || 'GET').toUpperCase();
+  if (!token && isGuestMode()) {
+    if (method != 'GET' && method != 'HEAD') {
+      throw new Error('Read-only preview mode. Please log in.');
+    }
+    return getGuestResponse(endpoint) as T;
+  }
   
   const headers: HeadersInit = {
     'Content-Type': 'application/json',

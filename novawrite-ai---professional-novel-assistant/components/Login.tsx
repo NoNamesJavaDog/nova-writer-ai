@@ -4,9 +4,10 @@ import { login, getCaptcha, checkLoginStatus } from '../services/authService';
 
 interface LoginProps {
   onLoginSuccess: () => void;
+  onBrowse: () => void;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess, onBrowse }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [captchaCode, setCaptchaCode] = useState('');
@@ -246,6 +247,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {/* 提示信息 */}
         <div className="mt-6 text-center text-sm text-slate-500">
           <p>💡 提示：数据存储在浏览器本地，请妥善保管您的账户信息</p>
+          <button
+            type="button"
+            onClick={onBrowse}
+            className="mt-4 inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            Browse mode (read-only)
+          </button>
         </div>
       </div>
     </div>
