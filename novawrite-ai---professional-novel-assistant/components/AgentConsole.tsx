@@ -156,8 +156,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
   };
 
   const parseSseEvent = (raw: string) => {
-    const lines = raw.split(/?
-/);
+    const lines = raw.split(/\r?\n/);
     let event = 'message';
     const dataLines: string[] = [];
     for (const line of lines) {
@@ -168,8 +167,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
         dataLines.push(line.slice(5).trim());
       }
     }
-    const dataString = dataLines.join('
-');
+    const dataString = dataLines.join('\n');
     if (!dataString) return { event, data: null };
     try {
       return { event, data: JSON.parse(dataString) };
@@ -183,7 +181,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
     onEvent: (event: string, data: StreamEventPayload | string | null) => void
   ) => {
     if (!response.body) {
-      throw new Error('??????????');
+      throw new Error('Stream response has no body');
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -193,9 +191,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       let index;
-      while ((index = buffer.indexOf('
-
-')) >= 0) {
+      while ((index = buffer.indexOf('\n\n')) >= 0) {
         const rawEvent = buffer.slice(0, index).trim();
         buffer = buffer.slice(index + 2);
         if (!rawEvent) continue;
