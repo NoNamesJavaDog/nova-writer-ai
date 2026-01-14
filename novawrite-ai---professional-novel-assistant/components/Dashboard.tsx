@@ -57,7 +57,7 @@ const Dashboard: React.FC<DashboardProps> = ({ novel, updateNovel, onStartWritin
         const outlineTask = activeTasks.find(
           task => task.novel_id === novel.id && 
                   task.task_type === 'generate_complete_outline' && 
-                  (task.status === 'running' || task.status === 'pending')
+                  (task.status === 'running' || task.status === 'pending' || task.status === 'processing')
         );
         
         if (outlineTask) {

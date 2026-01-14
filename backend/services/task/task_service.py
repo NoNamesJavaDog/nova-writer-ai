@@ -179,6 +179,6 @@ def get_user_active_tasks(db: Session, user_id: str) -> list:
     """获取用户的活跃任务（pending 或 running）"""
     return db.query(Task).filter(
         Task.user_id == user_id,
-        Task.status.in_(["pending", "running"])
+        Task.status.in_(["pending", "running", "processing"])
     ).order_by(Task.created_at.desc()).all()
 

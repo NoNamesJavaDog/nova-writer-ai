@@ -4051,7 +4051,7 @@ def update_task_progress(db: Session, task_id: str, progress: int, message: str)
     task = db.query(Task).filter(Task.id == task_id).first()
     if task:
         task.progress = progress
-        task.status = "processing" if progress < 100 else "completed"
+        task.status = "running" if progress < 100 else "completed"
         db.commit()
         logger.info(f"任务 {task_id} 进度更新: {progress}% - {message}")
 
@@ -4367,7 +4367,7 @@ async def get_active_tasks(
     """获取当前用户的活跃任务（pending 或 running）"""
     tasks = db.query(Task).filter(
         Task.user_id == current_user.id,
-        Task.status.in_(["pending", "running"])
+        Task.status.in_(["pending", "running", "processing"])
     ).order_by(Task.created_at.desc()).all()
     
     result = []

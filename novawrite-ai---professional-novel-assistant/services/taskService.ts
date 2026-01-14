@@ -65,7 +65,7 @@ export function startPolling(
       }
 
       // 如果任务还在运行或等待中，调用进度回调
-      if ((task.status === 'running' || task.status === 'pending') && callbacks.onProgress) {
+      if ((task.status === 'running' || task.status === 'pending' || task.status === 'processing') && callbacks.onProgress) {
         callbacks.onProgress(task);
       }
     } catch (error: any) {
