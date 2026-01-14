@@ -7433,176 +7433,176 @@ async def run_agent_flow_resume_stream(
                             issues=critic_issues,
                         )
 
-        if stage_completed in ("writer", "critic"):
-            saved_chapter_id = _save_flow_output_to_chapter(
-                db,
-                novel_id=novel_id,
-                volume_id=selected_volume_id,
-                chapter_id=selected_chapter_id,
-                user_message=user_message,
-                director=director,
-                writer_output=writer_output,
-            )
-            if saved_chapter_id:
-                yield _sse_event(
-                    "status",
-                    {
-                        "stage": "writer",
-                        "status": "saved",
-                        "chapter_id": saved_chapter_id,
-                        "run_id": request.run_id,
-                    },
-                )
-                _save_flow_status_message(
+            if stage_completed in ("writer", "critic"):
+                saved_chapter_id = _save_flow_output_to_chapter(
                     db,
-                    run_id=request.run_id,
                     novel_id=novel_id,
-                    user_id=current_user.id,
-                    stage="writer",
-                    status="saved",
-                    chapter_id=saved_chapter_id,
+                    volume_id=selected_volume_id,
+                    chapter_id=selected_chapter_id,
+                    user_message=user_message,
+                    director=director,
+                    writer_output=writer_output,
                 )
-                if _is_cancelled(request.run_id):
-                    output_payload = json.dumps(
+                if saved_chapter_id:
+                    yield _sse_event(
+                        "status",
                         {
-                            "stage": stage_completed,
-                            "user_message": user_message,
-                            "director": director,
-                            "writer": writer_output,
-                            "critic": critic_output,
-                            "archivist": archivist_output,
-                            "score": critic_score,
-                            "issues": critic_issues,
-                            "retries": retries,
-                            "max_retries": max_retries,
-                            "critic_threshold": threshold,
-                            "writer_prompt": writer_prompt,
-                            "summarize_chapters": summarize_chapters,
-                            "overwrite_summaries": overwrite_summaries,
+                            "stage": "writer",
+                            "status": "saved",
+                            "chapter_id": saved_chapter_id,
+                            "run_id": request.run_id,
                         },
-                        ensure_ascii=False,
-                    )
-                    _persist_agent_run(
-                        db,
-                        run_id=request.run_id,
-                        novel_id=novel_id,
-                        user_id=current_user.id,
-                        agent="flow",
-                        input_text=user_message,
-                        output=output_payload,
-                        status_text="cancelled",
-                        score=critic_score,
-                        issues=json.dumps(critic_issues, ensure_ascii=False),
-                    )
-                    _save_flow_messages_preserve_system(
-                        db,
-                        run_id=request.run_id,
-                        novel_id=novel_id,
-                        user_id=current_user.id,
-                        user_text=user_message,
-                        director=director,
-                        writer=writer_output,
-                        critic=critic_output,
-                        archivist=archivist_output,
                     )
                     _save_flow_status_message(
                         db,
                         run_id=request.run_id,
                         novel_id=novel_id,
                         user_id=current_user.id,
-                        stage=stage_completed,
-                        status="cancelled",
+                        stage="writer",
+                        status="saved",
+                        chapter_id=saved_chapter_id,
                     )
-                    yield _sse_event("cancelled", {"run_id": request.run_id, "stage": stage_completed})
-                    _clear_cancel(request.run_id)
-                    return
-                yield _sse_event("status", {"stage": "archivist", "status": "start", "run_id": request.run_id})
+                    if _is_cancelled(request.run_id):
+                        output_payload = json.dumps(
+                            {
+                                "stage": stage_completed,
+                                "user_message": user_message,
+                                "director": director,
+                                "writer": writer_output,
+                                "critic": critic_output,
+                                "archivist": archivist_output,
+                                "score": critic_score,
+                                "issues": critic_issues,
+                                "retries": retries,
+                                "max_retries": max_retries,
+                                "critic_threshold": threshold,
+                                "writer_prompt": writer_prompt,
+                                "summarize_chapters": summarize_chapters,
+                                "overwrite_summaries": overwrite_summaries,
+                            },
+                            ensure_ascii=False,
+                        )
+                        _persist_agent_run(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            agent="flow",
+                            input_text=user_message,
+                            output=output_payload,
+                            status_text="cancelled",
+                            score=critic_score,
+                            issues=json.dumps(critic_issues, ensure_ascii=False),
+                        )
+                        _save_flow_messages_preserve_system(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            user_text=user_message,
+                            director=director,
+                            writer=writer_output,
+                            critic=critic_output,
+                            archivist=archivist_output,
+                        )
+                        _save_flow_status_message(
+                            db,
+                            run_id=request.run_id,
+                            novel_id=novel_id,
+                            user_id=current_user.id,
+                            stage=stage_completed,
+                            status="cancelled",
+                        )
+                        yield _sse_event("cancelled", {"run_id": request.run_id, "stage": stage_completed})
+                        _clear_cancel(request.run_id)
+                        return
+                    yield _sse_event("status", {"stage": "archivist", "status": "start", "run_id": request.run_id})
+                    _save_flow_status_message(
+                        db,
+                        run_id=request.run_id,
+                        novel_id=novel_id,
+                        user_id=current_user.id,
+                        stage="archivist",
+                        status="start",
+                    )
+                    archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
+                    stage_completed = "archivist"
+                    yield _sse_event("stage_output", {"stage": "archivist", "text": archivist_output})
+                    parsed_archivist = _parse_json_output(archivist_output)
+                    if parsed_archivist:
+                        _apply_archivist_payload(db, novel_id, parsed_archivist)
+    
+                summary_count = 0
+                if summarize_chapters:
+                    summary_count = _summarize_chapters(db, novel_id, overwrite_summaries)
+    
+                output_payload = json.dumps(
+                    {
+                        "stage": "done",
+                        "user_message": user_message,
+                        "director": director,
+                        "writer": writer_output,
+                        "critic": critic_output,
+                        "archivist": archivist_output,
+                        "score": critic_score,
+                        "issues": critic_issues,
+                        "summaries": summary_count,
+                        "retries": retries,
+                        "max_retries": max_retries,
+                        "critic_threshold": threshold,
+                        "writer_prompt": writer_prompt,
+                        "volume_id": selected_volume_id,
+                        "chapter_id": selected_chapter_id or saved_chapter_id,
+                        "summarize_chapters": summarize_chapters,
+                        "overwrite_summaries": overwrite_summaries,
+                    },
+                    ensure_ascii=False,
+                )
+                status_text = "completed" if critic_score >= threshold else "needs_review"
+                _persist_agent_run(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    agent="flow",
+                    input_text=user_message,
+                    output=output_payload,
+                    status_text=status_text,
+                    score=critic_score,
+                    issues=json.dumps(critic_issues, ensure_ascii=False),
+                )
+                _save_flow_messages_preserve_system(
+                    db,
+                    run_id=request.run_id,
+                    novel_id=novel_id,
+                    user_id=current_user.id,
+                    user_text=user_message,
+                    director=director,
+                    writer=writer_output,
+                    critic=critic_output,
+                    archivist=archivist_output,
+                )
                 _save_flow_status_message(
                     db,
                     run_id=request.run_id,
                     novel_id=novel_id,
                     user_id=current_user.id,
-                    stage="archivist",
-                    status="start",
+                    stage="flow",
+                    status="done",
                 )
-                archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
-                stage_completed = "archivist"
-                yield _sse_event("stage_output", {"stage": "archivist", "text": archivist_output})
-                parsed_archivist = _parse_json_output(archivist_output)
-                if parsed_archivist:
-                    _apply_archivist_payload(db, novel_id, parsed_archivist)
-
-            summary_count = 0
-            if summarize_chapters:
-                summary_count = _summarize_chapters(db, novel_id, overwrite_summaries)
-
-            output_payload = json.dumps(
-                {
-                    "stage": "done",
-                    "user_message": user_message,
-                    "director": director,
-                    "writer": writer_output,
-                    "critic": critic_output,
-                    "archivist": archivist_output,
-                    "score": critic_score,
-                    "issues": critic_issues,
-                    "summaries": summary_count,
-                    "retries": retries,
-                    "max_retries": max_retries,
-                    "critic_threshold": threshold,
-                    "writer_prompt": writer_prompt,
-                    "volume_id": selected_volume_id,
-                    "chapter_id": selected_chapter_id or saved_chapter_id,
-                    "summarize_chapters": summarize_chapters,
-                    "overwrite_summaries": overwrite_summaries,
-                },
-                ensure_ascii=False,
-            )
-            status_text = "completed" if critic_score >= threshold else "needs_review"
-            _persist_agent_run(
-                db,
-                run_id=request.run_id,
-                novel_id=novel_id,
-                user_id=current_user.id,
-                agent="flow",
-                input_text=user_message,
-                output=output_payload,
-                status_text=status_text,
-                score=critic_score,
-                issues=json.dumps(critic_issues, ensure_ascii=False),
-            )
-            _save_flow_messages_preserve_system(
-                db,
-                run_id=request.run_id,
-                novel_id=novel_id,
-                user_id=current_user.id,
-                user_text=user_message,
-                director=director,
-                writer=writer_output,
-                critic=critic_output,
-                archivist=archivist_output,
-            )
-            _save_flow_status_message(
-                db,
-                run_id=request.run_id,
-                novel_id=novel_id,
-                user_id=current_user.id,
-                stage="flow",
-                status="done",
-            )
-            yield _sse_event(
-                "done",
-                {
-                    "run_id": request.run_id,
-                    "director": director,
-                    "writer": writer_output,
-                    "critic": critic_output,
-                    "archivist": archivist_output,
-                    "score": critic_score,
-                    "issues": critic_issues,
-                    "summaries": summary_count,
-                },
-            )
+                yield _sse_event(
+                    "done",
+                    {
+                        "run_id": request.run_id,
+                        "director": director,
+                        "writer": writer_output,
+                        "critic": critic_output,
+                        "archivist": archivist_output,
+                        "score": critic_score,
+                        "issues": critic_issues,
+                        "summaries": summary_count,
+                    },
+                )
         except Exception as exc:
             output_payload = json.dumps(
                 {
