@@ -5,10 +5,14 @@ import type { Novel, Character, WorldSetting, TimelineEvent, Foreshadowing, Volu
 // 使用相对路径，由 Nginx 代理到后端
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const buildUrl = (endpoint: string) => {
-  if (API_BASE_URL.endsWith('/api') && endpoint.startsWith('/api')) {
-    return `${API_BASE_URL}${endpoint.slice(4)}`;
+  const normalizedBase = API_BASE_URL.replace(/\/+$/, '');
+  if (!normalizedBase) {
+    return endpoint;
   }
-  return `${API_BASE_URL}${endpoint}`;
+  if (normalizedBase.endsWith('/api') && endpoint.startsWith('/api')) {
+    return `${normalizedBase}${endpoint.slice(4)}`;
+  }
+  return `${normalizedBase}${endpoint}`;
 };
 
 // 统一的 Token 存储：优先 sessionStorage，启动时迁移 legacy localStorage
