@@ -6216,15 +6216,23 @@ def _run_agent_llm(agent: str, message: str, context_text: str, provider: Option
     prompt = _build_agent_prompt(agent, message, context_text)
 
     if provider_name == "gemini":
+        import os
         from google import genai
-        from core.config import GEMINI_API_KEY
+        from core.config import GEMINI_API_KEY, GEMINI_PROXY
 
         if not GEMINI_API_KEY:
             raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
 
+        # Configure proxy for Gemini
+        if GEMINI_PROXY:
+            proxy_url = GEMINI_PROXY.strip()
+            os.environ['HTTP_PROXY'] = proxy_url
+            os.environ['HTTPS_PROXY'] = proxy_url
+            os.environ['ALL_PROXY'] = proxy_url
+
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
-            model="gemini-3-pro-preview",
+            model="gemini-2.0-flash",
             contents=prompt,
             config={"temperature": 0.6, "max_output_tokens": 4096},
         )
@@ -6259,15 +6267,23 @@ def _run_agent_llm_stream(
     prompt = _build_agent_prompt(agent, message, context_text)
 
     if provider_name == "gemini":
+        import os
         from google import genai
-        from core.config import GEMINI_API_KEY
+        from core.config import GEMINI_API_KEY, GEMINI_PROXY
 
         if not GEMINI_API_KEY:
             raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
 
+        # Configure proxy for Gemini
+        if GEMINI_PROXY:
+            proxy_url = GEMINI_PROXY.strip()
+            os.environ['HTTP_PROXY'] = proxy_url
+            os.environ['HTTPS_PROXY'] = proxy_url
+            os.environ['ALL_PROXY'] = proxy_url
+
         client = genai.Client(api_key=GEMINI_API_KEY)
         stream = client.models.generate_content_stream(
-            model="gemini-3-pro-preview",
+            model="gemini-2.0-flash",
             contents=prompt,
             config={"temperature": 0.6, "max_output_tokens": 4096},
         )
