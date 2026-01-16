@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: nova-ai-db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: novawrite_db_2024
-      POSTGRES_DB: novawrite_ai
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-novawrite_db_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-novawrite_ai}
     ports:
       - "5432:5432"
     volumes:
@@ -28,14 +26,29 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      # Service
+      - SERVICE_NAME=nova-ai-service
+      - HOST=0.0.0.0
+      - PORT=8001
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # AI Providers
+      - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-gemini}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_PROXY=${GEMINI_PROXY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.0-flash-exp}
+      - GEMINI_TIMEOUT_MS=${GEMINI_TIMEOUT_MS:-300000}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      - DEEPSEEK_PROXY=${DEEPSEEK_PROXY}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-reasoner}
+      - DEEPSEEK_TIMEOUT_MS=${DEEPSEEK_TIMEOUT_MS:-300000}
+      # Proxy
       - HTTP_PROXY=${GEMINI_PROXY}
       - HTTPS_PROXY=${GEMINI_PROXY}
       - ALL_PROXY=${GEMINI_PROXY}
       - NO_PROXY=localhost,127.0.0.1,backend,postgres
       - no_proxy=localhost,127.0.0.1,backend,postgres
-      - LOG_LEVEL=INFO
     restart: unless-stopped
     networks:
       - nova-network
@@ -70,28 +83,42 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - DATABASE_URL=postgresql://postgres:novawrite_db_2024@postgres:5432/novawrite_ai
+      # Database
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-novawrite_db_2024}@postgres:5432/${POSTGRES_DB:-novawrite_ai}
+      # JWT
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-this-in-production}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      # Environment
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DEBUG=${DEBUG:-false}
+      # AI Service
+      - AI_SERVICE_URL=http://ai-service:8001
+      - AI_SERVICE_TIMEOUT=${AI_SERVICE_TIMEOUT:-300}
+      - AI_SERVICE_PROVIDER=${AI_SERVICE_PROVIDER:-gemini}
+      - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-gemini}
+      # Gemini
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_PROXY=${GEMINI_PROXY}
+      # DeepSeek
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-reasoner}
+      - DEEPSEEK_TIMEOUT_MS=${DEEPSEEK_TIMEOUT_MS:-300000}
+      # Neo4j
+      - NEO4J_ENABLED=${NEO4J_ENABLED:-true}
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j}
+      # CORS
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000}
+      # Proxy
       - HTTP_PROXY=${GEMINI_PROXY}
       - HTTPS_PROXY=${GEMINI_PROXY}
       - ALL_PROXY=${GEMINI_PROXY}
       - NO_PROXY=localhost,127.0.0.1,ai-service,postgres
       - no_proxy=localhost,127.0.0.1,ai-service,postgres
-      - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000
-      - AI_SERVICE_URL=http://ai-service:8001
-      - AI_SERVICE_PROVIDER=${AI_SERVICE_PROVIDER:-gemini}
-      - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-gemini}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
-      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-reasoner}
-      - DEEPSEEK_TIMEOUT_MS=${DEEPSEEK_TIMEOUT_MS:-300000}
-      - NEO4J_ENABLED=true
-      - NEO4J_URI=bolt://neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-this-in-production}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,7 +135,7 @@ services:
     build:
       context: ./novawrite-ai---professional-novel-assistant
       args:
-        - VITE_API_BASE_URL=http://localhost:8000
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
     container_name: nova-ai-frontend
     ports:
       - "3000:80"
