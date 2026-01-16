@@ -119,6 +119,8 @@ const EditorView: React.FC<EditorViewProps> = ({
     }
   }, []);
 
+  const chapterUpdatedAt = novel.volumes[activeVolumeIdx]?.chapters[activeChapterIdx]?.updatedAt;
+
   // 当切换章节时，如果章节内容为空，则从后端获取最新内容
   useEffect(() => {
     if (activeChapterIdx === null || activeVolumeIdx === null) return;
@@ -166,7 +168,7 @@ const EditorView: React.FC<EditorViewProps> = ({
       
       loadChapterContent();
     }
-  }, [activeChapterIdx, activeVolumeIdx]);
+  }, [activeChapterIdx, activeVolumeIdx, chapterUpdatedAt]);
 
   const chapters = novel.volumes[activeVolumeIdx]?.chapters || [];
   const currentChapter = activeChapterIdx !== null && chapters[activeChapterIdx] ? chapters[activeChapterIdx] : null;

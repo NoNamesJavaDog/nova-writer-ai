@@ -53,6 +53,13 @@ if ENVIRONMENT == "production":
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8001")
 AI_SERVICE_TIMEOUT = int(os.getenv("AI_SERVICE_TIMEOUT", "300"))
 AI_SERVICE_PROVIDER = os.getenv("AI_SERVICE_PROVIDER", "gemini")
+DEFAULT_AI_PROVIDER = os.getenv("DEFAULT_AI_PROVIDER", AI_SERVICE_PROVIDER)
+
+# ==================== DeepSeek API configuration (agent usage) ====================
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-reasoner")
+DEEPSEEK_TIMEOUT_MS = int(os.getenv("DEEPSEEK_TIMEOUT_MS", "300000"))
 
 # ==================== Neo4j Graph Config ====================
 NEO4J_ENABLED = os.getenv("NEO4J_ENABLED", "false").lower() == "true"

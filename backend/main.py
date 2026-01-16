@@ -14,6 +14,7 @@ import json
 import uuid
 import logging
 import threading
+import httpx
 import asyncio
 import re
 
@@ -124,6 +125,30 @@ app = FastAPI(
 )
 
 # 配置 CORS
+
+
+def _resume_pending_tasks() -> None:
+    task_db = SessionLocal()
+    try:
+        pending = task_db.query(Task).filter(
+            Task.task_type == "generate_complete_outline",
+            Task.status.in_(["pending", "running", "processing"]),
+        ).order_by(Task.created_at.asc()).all()
+        if not pending:
+            return
+        executor = get_task_executor()
+        for task in pending:
+            logger.info(f"恢复待执行完整大纲任务: {task.id}")
+            executor.submit(lambda task_id=task.id, novel_id=task.novel_id: _execute_complete_outline_task(task_id, novel_id))
+    except Exception as exc:
+        logger.error(f"恢复任务失败: {exc}", exc_info=True)
+    finally:
+        task_db.close()
+
+
+@app.on_event("startup")
+async def _on_startup_resume_tasks():
+    _resume_pending_tasks()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -3020,6 +3045,216 @@ async def extract_foreshadowings_from_chapter_endpoint(
     )
     return convert_to_camel_case(result)
 
+
+class StageProgressTracker:
+    def __init__(self, task_id: str, min_progress: int, max_progress: int):
+        self.callback = ProgressCallback(task_id)
+        self.min_progress = min_progress
+        self.max_progress = max_progress
+        self.span = max(0, max_progress - min_progress)
+
+    def update(self, progress: int, message: str):
+        normalized = max(0, min(100, progress))
+        mapped = self.min_progress
+        if self.span > 0:
+            mapped = self.min_progress + int((normalized / 100) * self.span)
+        mapped = min(self.min_progress + self.span, mapped)
+        self.callback.update(mapped, message)
+
+
+def _execute_complete_outline_task(task_id: str, novel_id: str) -> None:
+    task_db = SessionLocal()
+    try:
+        logger.info(f"开始执行完整大纲任务：task_id={task_id} novel_id={novel_id}")
+
+        task_obj = task_db.query(Task).filter(Task.id == task_id).first()
+        if task_obj:
+            task_obj.status = "running"
+            task_obj.started_at = int(time.time() * 1000)
+            task_obj.progress_message = "任务已启动"
+            task_obj.updated_at = int(time.time() * 1000)
+            task_db.commit()
+
+        novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
+        if not novel_obj:
+            raise Exception("小说不存在")
+
+        current_time = int(time.time() * 1000)
+
+        logger.info("开始清理旧数据...")
+        task_db.query(Volume).filter(Volume.novel_id == novel_id).delete()
+        task_db.query(Character).filter(Character.novel_id == novel_id).delete()
+        task_db.query(WorldSetting).filter(WorldSetting.novel_id == novel_id).delete()
+        task_db.query(TimelineEvent).filter(TimelineEvent.novel_id == novel_id).delete()
+        task_db.query(Foreshadowing).filter(Foreshadowing.novel_id == novel_id).delete()
+        task_db.commit()
+        logger.info("旧数据清理完成")
+
+        logger.info("第 1/6：生成完整大纲并同步卷结构")
+        update_task_progress(task_db, task_id, 5, "正在生成完整大纲...")
+        outline_progress = StageProgressTracker(task_id, 6, 19)
+        outline_result = run_async(generate_full_outline(
+            title=novel_obj.title,
+            genre=novel_obj.genre,
+            synopsis=novel_obj.synopsis,
+            progress_callback=outline_progress
+        ))
+
+        novel_obj.full_outline = outline_result.get("outline", "")
+        task_db.commit()
+        update_task_progress(task_db, task_id, 20, "完整大纲生成完成")
+
+        volumes_data = outline_result.get("volumes", [])
+        for idx, volume_data in enumerate(volumes_data):
+            volume = Volume(
+                id=generate_uuid(),
+                novel_id=novel_id,
+                title=volume_data.get("title", f"?{idx+1}?"),
+                summary=volume_data.get("summary", ""),
+                outline="",
+                volume_order=idx,
+                created_at=current_time,
+                updated_at=current_time
+            )
+            task_db.add(volume)
+        task_db.commit()
+
+        logger.info("第 2/6：生成角色信息")
+        update_task_progress(task_db, task_id, 25, "正在生成角色...")
+        characters_progress = StageProgressTracker(task_id, 26, 39)
+        characters_result = run_async(generate_characters(
+            title=novel_obj.title,
+            genre=novel_obj.genre,
+            synopsis=novel_obj.synopsis,
+            outline=novel_obj.full_outline,
+            progress_callback=characters_progress
+        ))
+
+        for idx, char_data in enumerate(characters_result):
+            character = Character(
+                id=generate_uuid(),
+                novel_id=novel_id,
+                name=char_data.get("name", ""),
+                age=char_data.get("age", ""),
+                role=char_data.get("role", ""),
+                personality=char_data.get("personality", ""),
+                background=char_data.get("background", ""),
+                goals=char_data.get("goals", ""),
+                character_order=idx,
+                created_at=current_time,
+                updated_at=current_time
+            )
+            task_db.add(character)
+        task_db.commit()
+        update_task_progress(task_db, task_id, 40, "角色生成完成")
+
+        logger.info("第 3/6：生成世界观设定")
+        update_task_progress(task_db, task_id, 45, "正在生成世界观...")
+        world_progress = StageProgressTracker(task_id, 46, 59)
+        world_settings_result = run_async(generate_world_settings(
+            title=novel_obj.title,
+            genre=novel_obj.genre,
+            synopsis=novel_obj.synopsis,
+            outline=novel_obj.full_outline,
+            progress_callback=world_progress
+        ))
+
+        for idx, ws_data in enumerate(world_settings_result):
+            world_setting = WorldSetting(
+                id=generate_uuid(),
+                novel_id=novel_id,
+                title=ws_data.get("title", ""),
+                description=ws_data.get("description", ""),
+                category=ws_data.get("category", "其他"),
+                setting_order=idx,
+                created_at=current_time,
+                updated_at=current_time
+            )
+            task_db.add(world_setting)
+        task_db.commit()
+        update_task_progress(task_db, task_id, 60, "世界观生成完成")
+
+        logger.info("第 4/6：生成时间线事件")
+        update_task_progress(task_db, task_id, 65, "正在生成时间线...")
+        timeline_progress = StageProgressTracker(task_id, 66, 74)
+        timeline_result = run_async(generate_timeline_events(
+            title=novel_obj.title,
+            genre=novel_obj.genre,
+            synopsis=novel_obj.synopsis,
+            outline=novel_obj.full_outline,
+            progress_callback=timeline_progress
+        ))
+
+        for idx, event_data in enumerate(timeline_result):
+            timeline_event = TimelineEvent(
+                id=generate_uuid(),
+                novel_id=novel_id,
+                time=event_data.get("time", ""),
+                event=event_data.get("event", ""),
+                impact=event_data.get("impact", ""),
+                event_order=idx,
+                created_at=current_time,
+                updated_at=current_time
+            )
+            task_db.add(timeline_event)
+        task_db.commit()
+        update_task_progress(task_db, task_id, 75, "时间线生成完成")
+
+        logger.info("第 5/6：生成伏笔线索")
+        update_task_progress(task_db, task_id, 80, "正在生成伏笔...")
+        foreshadowings_progress = StageProgressTracker(task_id, 81, 89)
+        foreshadowings_result = run_async(generate_foreshadowings_from_outline(
+            title=novel_obj.title,
+            genre=novel_obj.genre,
+            synopsis=novel_obj.synopsis,
+            outline=novel_obj.full_outline,
+            progress_callback=foreshadowings_progress
+        ))
+
+        for idx, foreshadowing_data in enumerate(foreshadowings_result):
+            foreshadowing = Foreshadowing(
+                id=generate_uuid(),
+                novel_id=novel_id,
+                content=foreshadowing_data.get("content", ""),
+                chapter_id=None,
+                resolved_chapter_id=None,
+                is_resolved="false",
+                foreshadowing_order=idx,
+                created_at=current_time,
+                updated_at=current_time
+            )
+            task_db.add(foreshadowing)
+        task_db.commit()
+        update_task_progress(task_db, task_id, 90, "伏笔生成完成")
+
+        logger.info("第 6/6：任务完成")
+        task_obj = task_db.query(Task).filter(Task.id == task_id).first()
+        if task_obj:
+            task_obj.status = "completed"
+            task_obj.progress = 100
+            task_obj.progress_message = "完整大纲生成完成"
+            task_obj.result = json.dumps({
+                "message": "完整大纲生成成功",
+                "novel_id": novel_id
+            }, ensure_ascii=False)
+            task_obj.completed_at = current_time
+            task_obj.updated_at = current_time
+            task_db.commit()
+
+        logger.info(f"完整大纲任务结束: {task_id}")
+
+    except Exception as e:
+        logger.error(f"完整大纲处理失败: {str(e)}", exc_info=True)
+        task_obj = task_db.query(Task).filter(Task.id == task_id).first()
+        if task_obj:
+            task_obj.status = "failed"
+            task_obj.error_message = str(e)
+            task_obj.completed_at = int(time.time() * 1000)
+            task_obj.updated_at = int(time.time() * 1000)
+            task_db.commit()
+    finally:
+        task_db.close()
+
 @app.post("/api/novels/{novel_id}/generate-complete-outline")
 async def generate_complete_outline(
     novel_id: str,
@@ -3053,192 +3288,8 @@ async def generate_complete_outline(
     
     # 在后台执行完整的大纲生成流程
     def execute_complete_outline_generation():
-        task_db = SessionLocal()
-        try:
-            logger.info(f"开始生成完整大纲，任务ID: {task.id}，小说ID: {novel_id}")
-            
-            # 获取小说信息
-            novel_obj = task_db.query(Novel).filter(Novel.id == novel_id).first()
-            if not novel_obj:
-                raise Exception("小说不存在")
-            
-            current_time = int(time.time() * 1000)
-            
-            # 清理旧数据，避免重复生成时数据累积
-            logger.info("清理旧的大纲数据...")
-            task_db.query(Volume).filter(Volume.novel_id == novel_id).delete()
-            task_db.query(Character).filter(Character.novel_id == novel_id).delete()
-            task_db.query(WorldSetting).filter(WorldSetting.novel_id == novel_id).delete()
-            task_db.query(TimelineEvent).filter(TimelineEvent.novel_id == novel_id).delete()
-            task_db.query(Foreshadowing).filter(Foreshadowing.novel_id == novel_id).delete()
-            task_db.commit()
-            logger.info("旧数据清理完成")
-            
-            # 1. 生成完整大纲和卷结构（20%）
-            logger.info("步骤 1/6: 生成完整大纲和卷结构")
-            update_task_progress(task_db, task.id, 5, "正在生成完整大纲...")
-            outline_result = run_async(generate_full_outline(
-                title=novel_obj.title,
-                genre=novel_obj.genre,
-                synopsis=novel_obj.synopsis
-            ))
-            
-            # 保存大纲
-            novel_obj.full_outline = outline_result.get("outline", "")
-            task_db.commit()
-            update_task_progress(task_db, task.id, 20, "大纲生成完成")
-            
-            # 保存卷结构
-            volumes_data = outline_result.get("volumes", [])
-            for idx, volume_data in enumerate(volumes_data):
-                volume = Volume(
-                    id=generate_uuid(),
-                    novel_id=novel_id,
-                    title=volume_data.get("title", f"第{idx+1}卷"),
-                    summary=volume_data.get("summary", ""),
-                    outline="",
-                    volume_order=idx,
-                    created_at=current_time,
-                    updated_at=current_time
-                )
-                task_db.add(volume)
-            task_db.commit()
-            
-            # 2. 生成角色（40%）
-            logger.info("步骤 2/6: 生成角色")
-            update_task_progress(task_db, task.id, 25, "正在生成角色...")
-            characters_result = run_async(generate_characters(
-                title=novel_obj.title,
-                genre=novel_obj.genre,
-                synopsis=novel_obj.synopsis,
-                outline=novel_obj.full_outline
-            ))
-            
-            # characters_result 直接是列表，不是字典
-            for idx, char_data in enumerate(characters_result):
-                character = Character(
-                    id=generate_uuid(),
-                    novel_id=novel_id,
-                    name=char_data.get("name", ""),
-                    age=char_data.get("age", ""),
-                    role=char_data.get("role", ""),
-                    personality=char_data.get("personality", ""),
-                    background=char_data.get("background", ""),
-                    goals=char_data.get("goals", ""),
-                    character_order=idx,
-                    created_at=current_time,
-                    updated_at=current_time
-                )
-                task_db.add(character)
-            task_db.commit()
-            update_task_progress(task_db, task.id, 40, "角色生成完成")
-            
-            # 3. 生成世界观（60%）
-            logger.info("步骤 3/6: 生成世界观")
-            update_task_progress(task_db, task.id, 45, "正在生成世界观...")
-            world_settings_result = run_async(generate_world_settings(
-                title=novel_obj.title,
-                genre=novel_obj.genre,
-                synopsis=novel_obj.synopsis,
-                outline=novel_obj.full_outline
-            ))
-            
-            # world_settings_result 直接是列表，不是字典
-            for idx, ws_data in enumerate(world_settings_result):
-                world_setting = WorldSetting(
-                    id=generate_uuid(),
-                    novel_id=novel_id,
-                    title=ws_data.get("title", ""),
-                    description=ws_data.get("description", ""),
-                    category=ws_data.get("category", "其他"),
-                    setting_order=idx,
-                    created_at=current_time,
-                    updated_at=current_time
-                )
-                task_db.add(world_setting)
-            task_db.commit()
-            update_task_progress(task_db, task.id, 60, "世界观生成完成")
-            
-            # 4. 生成时间线（75%）
-            logger.info("步骤 4/6: 生成时间线")
-            update_task_progress(task_db, task.id, 65, "正在生成时间线...")
-            timeline_result = run_async(generate_timeline_events(
-                title=novel_obj.title,
-                genre=novel_obj.genre,
-                synopsis=novel_obj.synopsis,
-                outline=novel_obj.full_outline
-            ))
-            
-            # timeline_result 直接是列表，不是字典
-            for idx, event_data in enumerate(timeline_result):
-                timeline_event = TimelineEvent(
-                    id=generate_uuid(),
-                    novel_id=novel_id,
-                    time=event_data.get("time", ""),
-                    event=event_data.get("event", ""),
-                    impact=event_data.get("impact", ""),
-                    event_order=idx,
-                    created_at=current_time,
-                    updated_at=current_time
-                )
-                task_db.add(timeline_event)
-            task_db.commit()
-            update_task_progress(task_db, task.id, 75, "时间线生成完成")
-            
-            # 5. 生成伏笔（90%）
-            logger.info("步骤 5/6: 生成伏笔")
-            update_task_progress(task_db, task.id, 80, "正在生成伏笔...")
-            foreshadowings_result = run_async(generate_foreshadowings_from_outline(
-                title=novel_obj.title,
-                genre=novel_obj.genre,
-                synopsis=novel_obj.synopsis,
-                outline=novel_obj.full_outline
-            ))
-            
-            # foreshadowings_result 直接是列表，不是字典
-            for idx, foreshadowing_data in enumerate(foreshadowings_result):
-                foreshadowing = Foreshadowing(
-                    id=generate_uuid(),
-                    novel_id=novel_id,
-                    content=foreshadowing_data.get("content", ""),
-                    chapter_id=None,
-                    resolved_chapter_id=None,
-                    is_resolved="false",
-                    foreshadowing_order=idx,
-                    created_at=current_time,
-                    updated_at=current_time
-                )
-                task_db.add(foreshadowing)
-            task_db.commit()
-            update_task_progress(task_db, task.id, 90, "伏笔生成完成")
-            
-            # 6. 完成任务（100%）
-            logger.info("步骤 6/6: 完成")
-            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
-            if task_obj:
-                task_obj.status = "completed"
-                task_obj.progress = 100
-                task_obj.result = json.dumps({
-                    "message": "完整大纲生成成功",
-                    "novel_id": novel_id
-                })
-                task_obj.completed_at = current_time
-                task_db.commit()
-            
-            logger.info(f"完整大纲生成完成，任务ID: {task.id}")
-            
-        except Exception as e:
-            logger.error(f"生成完整大纲失败: {str(e)}", exc_info=True)
-            task_obj = task_db.query(Task).filter(Task.id == task.id).first()
-            if task_obj:
-                task_obj.status = "failed"
-                task_obj.error_message = str(e)
-                task_obj.completed_at = int(time.time() * 1000)
-                task_db.commit()
-        finally:
-            task_db.close()
-    
-    # 提交后台任务
+        _execute_complete_outline_task(task.id, novel_id)
+
     executor = get_task_executor()
     executor.submit(execute_complete_outline_generation)
     
@@ -4051,9 +4102,12 @@ def update_task_progress(db: Session, task_id: str, progress: int, message: str)
     task = db.query(Task).filter(Task.id == task_id).first()
     if task:
         task.progress = progress
+        task.progress_message = message
         task.status = "running" if progress < 100 else "completed"
+        task.updated_at = int(time.time() * 1000)
         db.commit()
-        logger.info(f"任务 {task_id} 进度更新: {progress}% - {message}")
+        logger.info(f"任务 {task_id} 进度: {progress}% - {message}")
+
 
 @app.post("/api/ai/modify-outline-by-dialogue", response_model=ModifyOutlineByDialogueResponse)
 async def modify_outline_by_dialogue_endpoint(
@@ -5229,6 +5283,7 @@ class AgentRunRequest(BaseModel):
     agent: str
     message: str
     use_context: bool = True
+    provider: Optional[str] = None
 
 
 class AgentFlowRequest(BaseModel):
@@ -5240,10 +5295,12 @@ class AgentFlowRequest(BaseModel):
     critic_threshold: int = 70
     summarize_chapters: bool = True
     overwrite_summaries: bool = False
+    provider: Optional[str] = None
 
 
 class AgentFlowResumeRequest(BaseModel):
     run_id: str
+    provider: Optional[str] = None
 
 
 class AgentCancelRequest(BaseModel):
@@ -6128,41 +6185,130 @@ def _build_agent_prompt(agent: str, message: str, context_text: str) -> str:
     )
 
 
-def _run_agent_llm(agent: str, message: str, context_text: str) -> Dict[str, Any]:
-    from google import genai
-    from core.config import GEMINI_API_KEY
+def _resolve_agent_provider(provider: Optional[str]) -> str:
+    from core.config import DEFAULT_AI_PROVIDER
 
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY 未配置")
+    name = (provider or DEFAULT_AI_PROVIDER or "gemini").lower().strip()
+    if name not in {"gemini", "deepseek"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported provider: {name}")
+    return name
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+
+def _deepseek_endpoint(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    if base.endswith("/v1"):
+        return f"{base}/chat/completions"
+    return f"{base}/v1/chat/completions"
+
+
+def _extract_openai_text(data: Dict[str, Any]) -> str:
+    choices = data.get("choices") or []
+    parts: List[str] = []
+    for choice in choices:
+        message = choice.get("message") or {}
+        content = message.get("content") or choice.get("text") or ""
+        parts.append(content)
+    return "".join(parts)
+
+
+def _run_agent_llm(agent: str, message: str, context_text: str, provider: Optional[str] = None) -> Dict[str, Any]:
+    provider_name = _resolve_agent_provider(provider)
     prompt = _build_agent_prompt(agent, message, context_text)
-    response = client.models.generate_content(
-        model="gemini-3-pro-preview",
-        contents=prompt,
-        config={"temperature": 0.6, "max_output_tokens": 4096},
-    )
-    text_output = response.text if response.text else ""
-    return {"text": text_output}
+
+    if provider_name == "gemini":
+        from google import genai
+        from core.config import GEMINI_API_KEY
+
+        if not GEMINI_API_KEY:
+            raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=prompt,
+            config={"temperature": 0.6, "max_output_tokens": 4096},
+        )
+        text_output = response.text if response.text else ""
+        return {"text": text_output}
+
+    from core.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, DEEPSEEK_TIMEOUT_MS
+
+    if not DEEPSEEK_API_KEY:
+        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY not configured")
+
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.6,
+        "max_tokens": 4096,
+    }
+
+    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+    with httpx.Client(timeout=DEEPSEEK_TIMEOUT_MS / 1000, trust_env=False) as client:
+        response = client.post(_deepseek_endpoint(DEEPSEEK_BASE_URL), json=payload, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+    return {"text": _extract_openai_text(data)}
 
 
-def _run_agent_llm_stream(agent: str, message: str, context_text: str) -> Iterable[str]:
-    from google import genai
-    from core.config import GEMINI_API_KEY
-
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY 未配置")
-
-    client = genai.Client(api_key=GEMINI_API_KEY)
+def _run_agent_llm_stream(
+    agent: str, message: str, context_text: str, provider: Optional[str] = None
+) -> Iterable[str]:
+    provider_name = _resolve_agent_provider(provider)
     prompt = _build_agent_prompt(agent, message, context_text)
-    stream = client.models.generate_content_stream(
-        model="gemini-3-pro-preview",
-        contents=prompt,
-        config={"temperature": 0.6, "max_output_tokens": 4096},
-    )
-    for chunk in stream:
-        if chunk.text:
-            yield chunk.text
+
+    if provider_name == "gemini":
+        from google import genai
+        from core.config import GEMINI_API_KEY
+
+        if not GEMINI_API_KEY:
+            raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        stream = client.models.generate_content_stream(
+            model="gemini-3-pro-preview",
+            contents=prompt,
+            config={"temperature": 0.6, "max_output_tokens": 4096},
+        )
+        for chunk in stream:
+            if chunk.text:
+                yield chunk.text
+        return
+
+    from core.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, DEEPSEEK_TIMEOUT_MS
+
+    if not DEEPSEEK_API_KEY:
+        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY not configured")
+
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.6,
+        "max_tokens": 4096,
+        "stream": True,
+    }
+    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+    with httpx.Client(timeout=DEEPSEEK_TIMEOUT_MS / 1000, trust_env=False) as client:
+        with client.stream("POST", _deepseek_endpoint(DEEPSEEK_BASE_URL), json=payload, headers=headers) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                if line.startswith("data:"):
+                    data = line[len("data:"):].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk_data = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk_data.get("choices") or []
+                    for choice in choices:
+                        delta = choice.get("delta") or {}
+                        text = delta.get("content")
+                        if text:
+                            yield text
 
 
 def _sse_event(event: str, payload: Dict[str, Any]) -> str:
@@ -6199,7 +6345,7 @@ async def run_agent(
     require_novel_owner(db, request.novel_id, current_user.id)
     context = _build_agent_context(db, request.novel_id) if request.use_context else {}
     context_text = _format_agent_context(context)
-    result = _run_agent_llm(request.agent, request.message, context_text)
+    result = _run_agent_llm(request.agent, request.message, context_text, provider=request.provider)
     output_text = result.get("text", "")
     score = None
     issues = None
@@ -6263,7 +6409,9 @@ async def run_agent_stream(
         yield _sse_event("status", {"stage": request.agent or "agent", "status": "start", "run_id": run_id})
         output_parts: List[str] = []
         try:
-            for chunk in _run_agent_llm_stream(request.agent, request.message, context_text):
+            for chunk in _run_agent_llm_stream(
+                request.agent, request.message, context_text, provider=request.provider
+            ):
                 if _is_cancelled(run_id):
                     output_text = "".join(output_parts)
                     _persist_agent_run(
@@ -6394,7 +6542,8 @@ async def run_agent_flow(
     context = _build_agent_context(db, request.novel_id)
     context_text = _format_agent_context(context)
     user_message = request.message or "Write the next scene."
-    director = _run_agent_llm("director", user_message, context_text).get("text", "")
+    provider_name = request.provider
+    director = _run_agent_llm("director", user_message, context_text, provider=provider_name).get("text", "")
     writer_prompt = f"Director plan:\n{director}\n\nWrite the scene."
     writer_output = ""
     critic_output = ""
@@ -6404,8 +6553,8 @@ async def run_agent_flow(
     max_retries = max(0, request.max_retries)
     threshold = max(0, min(100, request.critic_threshold))
     while retries <= max_retries:
-        writer_output = _run_agent_llm("writer", writer_prompt, context_text).get("text", "")
-        critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+        writer_output = _run_agent_llm("writer", writer_prompt, context_text, provider=provider_name).get("text", "")
+        critic_output = _run_agent_llm("critic", writer_output, context_text, provider=provider_name).get("text", "")
         try:
             critic_json = json.loads(critic_output)
             critic_score = int(critic_json.get("score") or 0)
@@ -6417,7 +6566,7 @@ async def run_agent_flow(
             break
         retries += 1
         writer_prompt = f"Rewrite due to issues: {critic_issues}\n\nOriginal:\n{writer_output}"
-    archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
+    archivist_output = _run_agent_llm("archivist", writer_output, context_text, provider=provider_name).get("text", "")
     parsed_archivist = _parse_json_output(archivist_output)
     if parsed_archivist:
         _apply_archivist_payload(db, request.novel_id, parsed_archivist)
@@ -6501,6 +6650,7 @@ async def run_agent_flow_stream(
         critic_issues: List[str] = []
         retries = 0
         writer_prompt = ""
+        provider_name = request.provider
         selected_volume_id = request.volume_id
         selected_chapter_id = request.chapter_id
 
@@ -6604,7 +6754,9 @@ async def run_agent_flow_stream(
                 yield _sse_event("cancelled", {"run_id": flow_id, "stage": stage_completed})
                 _clear_cancel(flow_id)
                 return
-            director = _run_agent_llm("director", user_message, context_text).get("text", "")
+            director = _run_agent_llm(
+                "director", user_message, context_text, provider=provider_name
+            ).get("text", "")
             stage_completed = "director"
             yield _sse_event("stage_output", {"stage": "director", "text": director})
             _persist_flow_state("director")
@@ -6679,7 +6831,9 @@ async def run_agent_flow_stream(
                     attempt=retries + 1,
                 )
                 writer_chunks: List[str] = []
-                for chunk in _run_agent_llm_stream("writer", writer_prompt, context_text):
+                for chunk in _run_agent_llm_stream(
+                    "writer", writer_prompt, context_text, provider=provider_name
+                ):
                     if _is_cancelled(flow_id):
                         output_payload = json.dumps(
                             {
@@ -6754,7 +6908,9 @@ async def run_agent_flow_stream(
                     status="start",
                     attempt=retries + 1,
                 )
-                critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                critic_output = _run_agent_llm(
+                    "critic", writer_output, context_text, provider=provider_name
+                ).get("text", "")
                 stage_completed = "critic"
                 yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
                 _persist_flow_state("critic")
@@ -6823,7 +6979,9 @@ async def run_agent_flow_stream(
                 stage="archivist",
                 status="start",
             )
-            archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
+            archivist_output = _run_agent_llm(
+                "archivist", writer_output, context_text, provider=provider_name
+            ).get("text", "")
             stage_completed = "archivist"
             yield _sse_event("stage_output", {"stage": "archivist", "text": archivist_output})
             _persist_flow_state("archivist")
@@ -7023,6 +7181,7 @@ async def run_agent_flow_resume_stream(
         overwrite_summaries = bool(state.get("overwrite_summaries", False))
         selected_volume_id = state.get("volume_id")
         selected_chapter_id = state.get("chapter_id")
+        provider_name = request.provider
 
         _register_run_owner(request.run_id, current_user.id)
         _persist_agent_run(
@@ -7122,7 +7281,9 @@ async def run_agent_flow_resume_stream(
                     stage="director",
                     status="start",
                 )
-                director = _run_agent_llm("director", user_message, context_text).get("text", "")
+                director = _run_agent_llm(
+                    "director", user_message, context_text, provider=provider_name
+                ).get("text", "")
                 stage_completed = "director"
                 yield _sse_event("stage_output", {"stage": "director", "text": director})
 
@@ -7203,7 +7364,9 @@ async def run_agent_flow_resume_stream(
                         attempt=retries + 1,
                     )
                     writer_chunks: List[str] = []
-                    for chunk in _run_agent_llm_stream("writer", writer_prompt, context_text):
+                    for chunk in _run_agent_llm_stream(
+                        "writer", writer_prompt, context_text, provider=provider_name
+                    ):
                         if _is_cancelled(request.run_id):
                             output_payload = json.dumps(
                                 {
@@ -7277,7 +7440,9 @@ async def run_agent_flow_resume_stream(
                         status="start",
                         attempt=retries + 1,
                     )
-                    critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                    critic_output = _run_agent_llm(
+                        "critic", writer_output, context_text, provider=provider_name
+                    ).get("text", "")
                     stage_completed = "critic"
                     yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
                     try:
@@ -7326,7 +7491,9 @@ async def run_agent_flow_resume_stream(
                     status="start",
                     attempt=retries + 1,
                 )
-                critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                critic_output = _run_agent_llm(
+                    "critic", writer_output, context_text, provider=provider_name
+                ).get("text", "")
                 stage_completed = "critic"
                 yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
                 try:
@@ -7375,7 +7542,9 @@ async def run_agent_flow_resume_stream(
                             attempt=retries + 1,
                         )
                         writer_chunks: List[str] = []
-                        for chunk in _run_agent_llm_stream("writer", writer_prompt, context_text):
+                        for chunk in _run_agent_llm_stream(
+                            "writer", writer_prompt, context_text, provider=provider_name
+                        ):
                             writer_chunks.append(chunk)
                             yield _sse_event("chunk", {"stage": "writer", "text": chunk})
                         writer_output = "".join(writer_chunks)
@@ -7395,7 +7564,9 @@ async def run_agent_flow_resume_stream(
                             status="start",
                             attempt=retries + 1,
                         )
-                        critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                        critic_output = _run_agent_llm(
+                            "critic", writer_output, context_text, provider=provider_name
+                        ).get("text", "")
                         stage_completed = "critic"
                         yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
                         try:
@@ -7449,7 +7620,9 @@ async def run_agent_flow_resume_stream(
                             attempt=retries + 1,
                         )
                         writer_chunks: List[str] = []
-                        for chunk in _run_agent_llm_stream("writer", writer_prompt, context_text):
+                        for chunk in _run_agent_llm_stream(
+                            "writer", writer_prompt, context_text, provider=provider_name
+                        ):
                             writer_chunks.append(chunk)
                             yield _sse_event("chunk", {"stage": "writer", "text": chunk})
                         writer_output = "".join(writer_chunks)
@@ -7469,7 +7642,9 @@ async def run_agent_flow_resume_stream(
                             status="start",
                             attempt=retries + 1,
                         )
-                        critic_output = _run_agent_llm("critic", writer_output, context_text).get("text", "")
+                        critic_output = _run_agent_llm(
+                            "critic", writer_output, context_text, provider=provider_name
+                        ).get("text", "")
                         stage_completed = "critic"
                         yield _sse_event("stage_output", {"stage": "critic", "text": critic_output})
                         try:
@@ -7597,7 +7772,9 @@ async def run_agent_flow_resume_stream(
                         stage="archivist",
                         status="start",
                     )
-                    archivist_output = _run_agent_llm("archivist", writer_output, context_text).get("text", "")
+                    archivist_output = _run_agent_llm(
+                        "archivist", writer_output, context_text, provider=provider_name
+                    ).get("text", "")
                     stage_completed = "archivist"
                     yield _sse_event("stage_output", {"stage": "archivist", "text": archivist_output})
                     parsed_archivist = _parse_json_output(archivist_output)

@@ -106,6 +106,16 @@ curl -X POST "http://localhost:8001/api/v1/outline/generate-full" \
   -H "X-Provider: claude" \
   -H "Content-Type: application/json" \
   -d '{...}'
+
+// 使用 DeepSeek（OpenAI 兼容格式）
+curl -X POST "http://localhost:8001/api/v1/outline/generate-full" \
+  -H "X-Provider: deepseek" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Deep Seek Chronicle",
+    "genre": "science fiction",
+    "synopsis": "A story powered by DeepSeek Reasoner"
+  }'
 ```
 
 ### 流式响应
@@ -175,6 +185,8 @@ nova-ai-service/
 | `PORT` | 服务监听端口 | 8001 | 否 |
 | `LOG_LEVEL` | 日志级别 | INFO | 否 |
 
+| `DEFAULT_AI_PROVIDER` | 默认 AI 提供商（在略过 X-Provider 时生效） | gemini | 否 |
+
 ## 开发说明
 
 ### 添加新的 AI 提供商
@@ -205,3 +217,15 @@ nova-ai-service/
 ## 许可证
 
 MIT License
+
+## DeepSeek provider configuration
+
+- `DEEPSEEK_API_KEY`: DeepSeek API key (required when using `X-Provider: deepseek`)
+- `DEEPSEEK_BASE_URL`: Base URL for DeepSeek, defaults to `https://api.deepseek.com`
+- `DEEPSEEK_PROXY`: Optional HTTP/SOCKS proxy if DeepSeek is blocked in your region
+- `DEEPSEEK_MODEL`: DeepSeek model name (`deepseek-reasoner` recommended)
+- `DEEPSEEK_TIMEOUT_MS`: Request timeout in milliseconds (default 300000)
+
+## Provider selection
+
+- `DEFAULT_AI_PROVIDER` sets the provider used when the request omits the `X-Provider` header. Valid values: `gemini`, `deepseek`, `claude`, `openai`.

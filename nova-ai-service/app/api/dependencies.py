@@ -1,4 +1,4 @@
-"""API 依赖注入"""
+"""Dependency injection helpers for API routers."""
 
 import logging
 from fastapi import Header, HTTPException
@@ -11,33 +11,22 @@ logger = logging.getLogger(__name__)
 
 
 async def get_ai_provider(
-    x_provider: str = Header(default="gemini", description="AI 提供商名称（gemini, claude, openai）")
+    x_provider: Optional[str] = Header(
+        default=None,
+        description="AI provider name (gemini, deepseek, claude, openai). If omitted, the backend DEFAULT_AI_PROVIDER is used."
+    )
 ) -> AIServiceProvider:
-    """依赖注入：获取 AI 提供商实例
-
-    通过 HTTP Header X-Provider 选择提供商（gemini, claude, openai）
-
-    Args:
-        x_provider: AI 提供商名称，从 HTTP Header X-Provider 中获取
-
-    Returns:
-        AIServiceProvider: AI 服务提供商实例
-
-    Raises:
-        HTTPException: 当提供商不支持或配置缺失时抛出 400 错误
-    """
-    provider_name = x_provider.lower().strip()
+    """Resolve an AI service provider instance using the X-Provider header or the configured default."""
+    provider_name = (x_provider or settings.DEFAULT_AI_PROVIDER).lower().strip()
 
     try:
-        # 根据提供商类型获取相应的配置
         if provider_name == "gemini":
             if not settings.GEMINI_API_KEY:
                 raise HTTPException(
                     status_code=500,
-                    detail="Gemini API 密钥未配置，请在环境变量中设置 GEMINI_API_KEY"
+                    detail="Gemini API key is not configured; set GEMINI_API_KEY"
                 )
-
-            logger.info(f"创建 Gemini 提供商实例，模型: {settings.GEMINI_MODEL}")
+            logger.info(f"Creating Gemini provider (model={settings.GEMINI_MODEL})")
             return get_provider(
                 provider_name="gemini",
                 api_key=settings.GEMINI_API_KEY,
@@ -46,51 +35,58 @@ async def get_ai_provider(
                 timeout_ms=settings.GEMINI_TIMEOUT_MS
             )
 
-        elif provider_name == "claude":
+        if provider_name == "deepseek":
+            if not settings.DEEPSEEK_API_KEY:
+                raise HTTPException(
+                    status_code=500,
+                    detail="DeepSeek API key is not configured; set DEEPSEEK_API_KEY"
+                )
+            logger.info(f"Creating DeepSeek provider (model={settings.DEEPSEEK_MODEL})")
+            return get_provider(
+                provider_name="deepseek",
+                api_key=settings.DEEPSEEK_API_KEY,
+                proxy=settings.DEEPSEEK_PROXY,
+                base_url=settings.DEEPSEEK_BASE_URL,
+                model=settings.DEEPSEEK_MODEL,
+                timeout_ms=settings.DEEPSEEK_TIMEOUT_MS
+            )
+
+        if provider_name == "claude":
             if not settings.CLAUDE_API_KEY:
                 raise HTTPException(
                     status_code=500,
-                    detail="Claude API 密钥未配置，请在环境变量中设置 CLAUDE_API_KEY"
+                    detail="Claude API key is not configured; set CLAUDE_API_KEY"
                 )
-
-            logger.info(f"创建 Claude 提供商实例，模型: {settings.CLAUDE_MODEL}")
+            logger.info(f"Creating Claude provider (model={settings.CLAUDE_MODEL})")
             return get_provider(
                 provider_name="claude",
                 api_key=settings.CLAUDE_API_KEY,
                 model=settings.CLAUDE_MODEL
             )
 
-        elif provider_name == "openai":
+        if provider_name == "openai":
             if not settings.OPENAI_API_KEY:
                 raise HTTPException(
                     status_code=500,
-                    detail="OpenAI API 密钥未配置，请在环境变量中设置 OPENAI_API_KEY"
+                    detail="OpenAI API key is not configured; set OPENAI_API_KEY"
                 )
-
-            logger.info(f"创建 OpenAI 提供商实例，模型: {settings.OPENAI_MODEL}")
+            logger.info(f"Creating OpenAI provider (model={settings.OPENAI_MODEL})")
             return get_provider(
                 provider_name="openai",
                 api_key=settings.OPENAI_API_KEY,
                 model=settings.OPENAI_MODEL
             )
 
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"不支持的 AI 提供商: {provider_name}。支持的提供商: gemini, claude, openai"
-            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported AI provider {provider_name}. Available providers: gemini, deepseek, claude, openai"
+        )
 
     except HTTPException:
-        # 直接抛出 HTTPException
         raise
-    except ValueError as e:
-        # 提供商不支持
-        logger.error(f"获取 AI 提供商失败: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        # 其他错误
-        logger.error(f"创建 AI 提供商实例时发生错误: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"创建 AI 提供商实例失败: {str(e)}"
-        )
+    except ValueError as exc:
+        logger.error(f"AI provider lookup failed: {str(exc)}")
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to instantiate AI provider", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create AI provider: {str(exc)}")

@@ -41,6 +41,13 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
   const [message, setMessage] = useState('');
   const [selectedVolumeId, setSelectedVolumeId] = useState('');
   const [selectedChapterId, setSelectedChapterId] = useState('');
+  const [provider, setProvider] = useState(() => {
+    try {
+      return localStorage.getItem('agent_provider') || 'gemini';
+    } catch {
+      return 'gemini';
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -227,6 +234,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
         critic_threshold: 70,
         summarize_chapters: true,
         overwrite_summaries: false,
+        provider,
       });
 
       if (!response.ok) {
@@ -321,7 +329,7 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
     });
     setCurrentRunId(lastFlowRunId);
     try {
-      const response = await agentApi.flowResumeStream({ run_id: lastFlowRunId });
+      const response = await agentApi.flowResumeStream({ run_id: lastFlowRunId, provider });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `请求失败: ${response.status}`);
@@ -551,6 +559,25 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
                       第{index + 1}章 · {chapter.title}
                     </option>
                   ))}
+                </select>
+              </div>
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-slate-500">Model</label>
+                <select
+                  value={provider}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setProvider(value);
+                    try {
+                      localStorage.setItem('agent_provider', value);
+                    } catch {
+                      // ignore storage errors
+                    }
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="gemini">Gemini</option>
                 </select>
               </div>
               <textarea

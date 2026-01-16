@@ -1152,31 +1152,31 @@ export const graphApi = {
 };
 
 export const agentApi = {
-  run: async (payload: { novel_id: string; agent: string; message: string; use_context?: boolean }): Promise<any> => {
+  run: async (payload: { novel_id: string; agent: string; message: string; use_context?: boolean; provider?: string }): Promise<any> => {
     return apiRequest<any>('/api/agents/run', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   },
-  runStream: async (payload: { novel_id: string; agent: string; message: string; use_context?: boolean }): Promise<Response> => {
+  runStream: async (payload: { novel_id: string; agent: string; message: string; use_context?: boolean; provider?: string }): Promise<Response> => {
     return apiFetch('/api/agents/run/stream', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   },
-  flow: async (payload: { novel_id: string; message?: string; max_retries?: number; critic_threshold?: number; summarize_chapters?: boolean; overwrite_summaries?: boolean }): Promise<any> => {
+  flow: async (payload: { novel_id: string; message?: string; max_retries?: number; critic_threshold?: number; summarize_chapters?: boolean; overwrite_summaries?: boolean; provider?: string }): Promise<any> => {
     return apiRequest<any>('/api/agents/flow', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   },
-  flowStream: async (payload: { novel_id: string; message?: string; volume_id?: string; chapter_id?: string; max_retries?: number; critic_threshold?: number; summarize_chapters?: boolean; overwrite_summaries?: boolean }): Promise<Response> => {
+  flowStream: async (payload: { novel_id: string; message?: string; volume_id?: string; chapter_id?: string; max_retries?: number; critic_threshold?: number; summarize_chapters?: boolean; overwrite_summaries?: boolean; provider?: string }): Promise<Response> => {
     return apiFetch('/api/agents/flow/stream', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   },
-  flowResumeStream: async (payload: { run_id: string }): Promise<Response> => {
+  flowResumeStream: async (payload: { run_id: string; provider?: string }): Promise<Response> => {
     return apiFetch('/api/agents/flow/resume/stream', {
       method: 'POST',
       body: JSON.stringify(payload),
