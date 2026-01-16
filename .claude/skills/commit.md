@@ -1,15 +1,37 @@
-# Commit Skill - Auto Commit Code to GitHub
+# Commit Skill - Auto Commit and Deploy
 
-When the user requests to commit code, follow these steps:
+When the user completes a code change, automatically commit and deploy to local Docker.
+
+## Default Behavior
+
+After completing any code modification task:
+1. **Commit** - Stage and commit changes with appropriate message
+2. **Push** - Push to GitHub remote
+3. **Deploy** - Rebuild and restart affected Docker services
 
 ## Steps
 
-1. **Check status** - Run `git status` to view all modified files
-2. **View changes** - Run `git diff` to see specific changes
-3. **Check history** - Run `git log --oneline -5` to understand the project's commit style
-4. **Analyze changes** - Generate an appropriate commit message based on the changes
-5. **Stage files** - Use `git add` to stage relevant files (default: all changes unless specified)
-6. **Commit code** - Create the commit following the project's style
+### 1. Check Status
+```bash
+git status
+git diff --stat
+```
+
+### 2. Stage and Commit
+- Exclude `.idea/` and other IDE files
+- Generate commit message based on changes
+- Use conventional commit format
+
+### 3. Push to Remote
+```bash
+git push github main
+```
+
+### 4. Deploy to Docker
+```bash
+# Rebuild and restart services
+docker-compose up -d --build
+```
 
 ## Commit Message Convention
 
@@ -26,24 +48,31 @@ Use concise descriptions with these prefixes:
 
 - **DO NOT** commit files containing sensitive information (e.g., `.env`, `credentials.json`)
 - **DO NOT** use dangerous options like `--force` or `--no-verify`
-- **DO NOT** push to remote automatically unless the user explicitly requests it
-- Warn the user if sensitive files are detected in the staging area
+- Exclude `.idea/workspace.xml` by default
+- Warn if sensitive files are detected
 
-## Usage Examples
+## Smart Deploy
 
-User input:
-- `/commit` - Commit all changes
-- `/commit -m "fix: resolve login issue"` - Use specified commit message
-- `/commit --push` - Commit and push to remote
+Only rebuild affected services:
+- Frontend changes (`novawrite-ai---professional-novel-assistant/`) → rebuild frontend
+- Backend changes (`backend/`) → rebuild backend
+- AI service changes (`nova-ai-service/`) → rebuild ai-service
+- Docker/config changes → rebuild all
+
+## Usage
+
+This skill runs automatically after task completion. Can also be triggered manually:
+- `/commit` - Commit, push, and deploy
+- `/commit --no-deploy` - Commit and push only
+- `/commit --no-push` - Commit only
 
 ## Execution Flow
 
 ```
-1. git status (check status)
-2. git diff (view changes)
-3. git log --oneline -5 (check history style)
-4. Analyze and generate commit message
-5. git add . (or specified files)
-6. git commit -m "message"
-7. If --push argument provided, execute git push
+1. git status (check changes)
+2. git add <files> (exclude .idea/)
+3. git commit -m "message"
+4. git push github main
+5. docker-compose up -d --build
+6. docker-compose ps (verify status)
 ```
