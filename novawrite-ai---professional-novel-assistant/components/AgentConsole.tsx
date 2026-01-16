@@ -4,6 +4,7 @@ import { agentApi } from '../services/apiService';
 
 interface AgentConsoleProps {
   novel: Novel;
+  loadNovels?: () => Promise<void>;
 }
 
 type ChatRole = 'user' | 'agent' | 'system';
@@ -37,7 +38,7 @@ const stageLabels: Record<string, string> = {
 
 const createId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
+const AgentConsole: React.FC<AgentConsoleProps> = ({ novel, loadNovels }) => {
   const [message, setMessage] = useState('');
   const [selectedVolumeId, setSelectedVolumeId] = useState('');
   const [selectedChapterId, setSelectedChapterId] = useState('');
@@ -252,6 +253,9 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
               role: 'system',
               text: `已保存到章节：${title || data.chapter_id}`,
             });
+            if (loadNovels) {
+              loadNovels().catch((err) => console.warn('Failed to reload novels:', err));
+            }
             return;
           }
           const stage = data.stage || 'agent';
@@ -284,6 +288,9 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           setLastFlowStage(null);
           setCurrentRunId(null);
           loadHistory();
+          if (loadNovels) {
+            loadNovels().catch((err) => console.warn('Failed to reload novels:', err));
+          }
           setLoading(false);
         }
         if (event === 'error' && typeof data === 'object') {
@@ -344,6 +351,9 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
               role: 'system',
               text: `已保存到章节：${title || data.chapter_id}`,
             });
+            if (loadNovels) {
+              loadNovels().catch((err) => console.warn('Failed to reload novels:', err));
+            }
             return;
           }
           const stage = data.stage || 'agent';
@@ -376,6 +386,9 @@ const AgentConsole: React.FC<AgentConsoleProps> = ({ novel }) => {
           setLastFlowStage(null);
           setCurrentRunId(null);
           loadHistory();
+          if (loadNovels) {
+            loadNovels().catch((err) => console.warn('Failed to reload novels:', err));
+          }
           setLoading(false);
         }
         if (event === 'error' && typeof data === 'object') {

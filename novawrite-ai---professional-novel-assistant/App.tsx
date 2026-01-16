@@ -426,7 +426,7 @@ const App: React.FC = () => {
       case 'graph':
         return <GraphView novel={currentNovel} />;
       case 'agents':
-        return <AgentConsole novel={currentNovel} />;
+        return <AgentConsole novel={currentNovel} loadNovels={loadNovels} />;
       default:
         return <Dashboard novel={currentNovel} updateNovel={updateNovel} onStartWriting={() => setActiveView('outline')} loadNovels={loadNovels} />;
     }
